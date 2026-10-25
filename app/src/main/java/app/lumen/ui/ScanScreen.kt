@@ -3,7 +3,7 @@ package app.lumen.ui
 import android.Manifest
 import android.content.pm.PackageManager
 import android.net.Uri
-import android.util.Size
+import android.util.Size as CameraSize
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.PickVisualMediaRequest
 import androidx.activity.result.contract.ActivityResultContracts
@@ -105,7 +105,7 @@ fun ScanScreen(vm: AppViewModel, onBack: () -> Unit) {
                 val analysis = ImageAnalysis.Builder()
                     .setResolutionSelector(
                         ResolutionSelector.Builder()
-                            .setResolutionStrategy(ResolutionStrategy(Size(1920, 1080), ResolutionStrategy.FALLBACK_RULE_CLOSEST_LOWER_THEN_HIGHER))
+                            .setResolutionStrategy(ResolutionStrategy(CameraSize(1920, 1080), ResolutionStrategy.FALLBACK_RULE_CLOSEST_LOWER_THEN_HIGHER))
                             .build()
                     )
                     .setBackpressureStrategy(ImageAnalysis.STRATEGY_KEEP_ONLY_LATEST).build()
