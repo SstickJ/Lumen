@@ -9,23 +9,25 @@ jobs:
       - uses: actions/checkout@v4
       - uses: actions/setup-java@v4
         with: { distribution: temurin, java-version: 17 }
-      # No setup-android step: ubuntu-latest already has the Android SDK (ANDROID_HOME)
-      # with licenses accepted, and AGP downloads the platform/build-tools it needs.
+      # ubuntu-latest already ships the Android SDK with licenses accepted.
       - uses: gradle/actions/setup-gradle@v4
         with: { gradle-version: "8.9" }
-      - name: Diagnose project layout
-        continue-on-error: true
-        run: |
-          echo "--- repo root"; ls -la
-          echo "--- app/"; ls -la app || true
-          echo "--- app/build.gradle.kts (head)"; head -8 app/build.gradle.kts || echo "MISSING app/build.gradle.kts"
-          gradle projects --no-daemon
-          gradle :app:tasks --all --no-daemon | grep -i -E "unittest|assembleDebug" || echo "no android tasks on :app"
       - name: Unit tests (core logic)
-        run: gradle :app:testDebugUnitTest --no-daemon --stacktrace
+        run: |
+          set -o pipefail
+          gradle :app:testDebugUnitTest --no-daemon --console=plain 2>&1 | tee build.log
       - name: Build debug APK
-        run: gradle :app:assembleDebug --no-daemon --stacktrace
+        run: |
+          set -o pipefail
+          gradle :app:assembleDebug --no-daemon --console=plain 2>&1 | tee -a build.log
+      - name: Compiler errors only (paste this if the build failed)
+        if: failure()
+        run: |
+          grep -E "^e: |error:|What went wrong" -A1 build.log | head -80 || true
       - uses: actions/upload-artifact@v4
+        if: always()
         with:
-          name: lumen-debug-apk
-          path: app/build/outputs/apk/debug/*.apk
+          name: build-log-and-apk
+          path: |
+            build.log
+            app/build/outputs/apk/debug/*.apk
