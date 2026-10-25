@@ -55,6 +55,8 @@ dependencies {
     implementation("androidx.camera:camera-lifecycle:$camerax")
     implementation("androidx.camera:camera-view:$camerax")
     implementation("com.google.mlkit:barcode-scanning:17.3.0")
+    // CameraX returns Guava ListenableFuture; the app must have it on its own compile classpath.
+    implementation("com.google.guava:guava:33.0.0-android")
 
     implementation("androidx.health.connect:connect-client:1.1.0-alpha07")
     implementation("com.squareup.okhttp3:okhttp:4.12.0")
