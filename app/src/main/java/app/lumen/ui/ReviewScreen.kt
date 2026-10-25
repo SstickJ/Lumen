@@ -40,7 +40,11 @@ fun ReviewScreen(vm: AppViewModel, onBack: () -> Unit) {
     val s by vm.settings.collectAsStateWithLifecycle()
     val draft by vm.draft.collectAsStateWithLifecycle()
     val d = draft
-    if (d == null) { LaunchedEffect(Unit) { onBack() }; return }
+    // Leave automatically only if this screen was opened with no draft at all (e.g. restored after the app
+    // was killed). Once a draft existed, saving/deleting/discarding already navigates; a second pop here
+    // would remove Home from the back stack and leave a blank screen.
+    val openedWithDraft = remember { vm.draft.value != null }
+    if (d == null) { if (!openedWithDraft) LaunchedEffect(Unit) { onBack() }; return }
 
     var showAdd by remember { mutableStateOf(false) }
     var editIndex by remember { mutableStateOf<Int?>(null) }

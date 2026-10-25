@@ -1,6 +1,7 @@
 package app.lumen.data
 
 import androidx.room.*
+import app.lumen.core.FoodHit
 import app.lumen.core.IngredientDraft
 import app.lumen.core.Totals
 import app.lumen.core.totals
@@ -57,6 +58,9 @@ fun IngredientDraft.toRow(entryId: Long) =
     IngredientRow(entryId = entryId, name = name, grams = grams, kcal100 = kcalPer100, protein100 = proteinPer100,
         carbs100 = carbsPer100, fat100 = fatPer100, barcode = barcode)
 
+/** A product the user already logged (or corrected) keeps working offline and overrides the online data. */
+fun IngredientRow.toFoodHit() = FoodHit(name, null, kcal100, protein100, carbs100, fat100, grams, barcode, true)
+
 fun EntryWithIngredients.sum(): Totals = ingredients.map { it.toDraft() }.totals()
 
 @Dao
@@ -68,6 +72,9 @@ interface LumenDao {
     @Transaction
     @Query("SELECT * FROM entries WHERE id = :id")
     suspend fun entry(id: Long): EntryWithIngredients?
+
+    @Query("SELECT * FROM ingredients WHERE barcode = :code ORDER BY id DESC LIMIT 1")
+    suspend fun lastIngredientByBarcode(code: String): IngredientRow?
 
     @Insert suspend fun insertEntry(e: EntryRow): Long
     @Update suspend fun updateEntry(e: EntryRow)

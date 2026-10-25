@@ -197,21 +197,33 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
     private var lastCode = ""
     private var lastCodeAt = 0L
 
-    fun lookupBarcode(raw: String) {
+    fun lookupBarcode(raw: String, force: Boolean = false) {
         val now = System.currentTimeMillis()
-        if (_busy.value != null || (raw == lastCode && now - lastCodeAt < 6000)) return
+        if (_busy.value != null || (!force && raw == lastCode && now - lastCodeAt < 6000)) return
         lastCode = raw; lastCodeAt = now
         launchSafe {
+            val code = normalizeBarcode(raw)
+            if (code == null) { msg("That doesn't look like a product barcode (8 to 14 digits)."); return@launchSafe }
             _busy.value = "Looking up barcode…"
             val s = settings.value
-            val hit = io { net.barcode(raw, s) }
+            // 1) products you already logged or corrected, 2) Open Food Facts, 3) USDA branded foods
+            val hit = dao.lastIngredientByBarcode(code)?.toFoodHit() ?: io { net.barcode(code, s) }
             _busy.value = null
-            if (hit == null) { msg("Barcode $raw isn't in the database. Add it manually."); return@launchSafe }
-            val grams = (hit.servingGrams ?: s.defaultServingGrams.toDouble()).coerceAtLeast(1.0)
             val ts = newTs()
+            if (hit == null) {
+                msg("Barcode $code wasn't found online. Enter it once and it will be remembered.")
+                _draft.value = Draft(
+                    ts = ts, name = "Unknown product", meal = mealAt(ts), source = "BARCODE", barcode = code,
+                    ingredients = listOf(IngredientDraft("Unknown product", s.defaultServingGrams.toDouble(), 0.0, 0.0, 0.0, 0.0, code)),
+                    notes = "Barcode $code wasn't found. Tap the ingredient to enter its name and calories; the app will remember it next time."
+                )
+                _events.send(UiEvent.OpenReview)
+                return@launchSafe
+            }
+            val grams = (hit.servingGrams ?: s.defaultServingGrams.toDouble()).coerceAtLeast(1.0)
             val d = Draft(ts = ts, name = listOfNotNull(hit.brand, hit.name).distinct().joinToString(" · "), meal = mealAt(ts),
-                ingredients = listOf(IngredientDraft.fromFood(hit, grams)), source = "BARCODE", barcode = hit.barcode,
-                notes = if (hit.hasNutrition) null else "No calorie data for this product. Tap the ingredient to enter it.")
+                ingredients = listOf(IngredientDraft.fromFood(hit, grams)), source = "BARCODE", barcode = hit.barcode ?: code,
+                notes = if (hit.hasNutrition) null else "No calorie data for this product online. Tap the ingredient to enter it (0 is right for plain water).")
             if (s.barcodeAutoLog && hit.hasNutrition) {
                 save(d); msg("Logged ${d.name}"); _events.send(UiEvent.GoHome)
             } else {
@@ -281,7 +293,10 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
     fun syncHealth(silent: Boolean = false) = launchSafe {
         _hc.value = HealthSync.state(ctx)
         if (_hc.value != HcState.READY) { if (!silent) msg("Health Connect isn't ready. Grant access first."); return@launchSafe }
-        val n = HealthSync.sync(ctx, settings.value, dao)
-        if (!silent) msg(if (n == 0) "No workouts found in the last ${settings.value.hcLookbackDays} days" else "Synced $n workout(s) from Health Connect")
+        val r = HealthSync.sync(ctx, settings.value, dao)
+        if (!silent) msg(
+            if (r.sessions == 0) "No workouts found in the last ${settings.value.hcLookbackDays} days"
+            else "Synced ${r.sessions} workout(s)\n" + r.lines.take(4).joinToString("\n")
+        )
     }
 }

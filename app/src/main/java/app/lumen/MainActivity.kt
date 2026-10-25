@@ -47,7 +47,7 @@ class MainActivity : ComponentActivity() {
                     vm.events.collect { e ->
                         when (e) {
                             UiEvent.OpenReview -> nav.navigate("review") { launchSingleTop = true }
-                            UiEvent.GoHome -> nav.popBackStack("home", false)
+                            UiEvent.GoHome -> if (!nav.popBackStack("home", false)) nav.navigate("home") { launchSingleTop = true }
                             is UiEvent.Message -> Toast.makeText(ctx, e.text, Toast.LENGTH_LONG).show()
                         }
                     }

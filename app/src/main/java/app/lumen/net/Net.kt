@@ -7,6 +7,7 @@ import okhttp3.OkHttpClient
 import okhttp3.Request
 import okhttp3.RequestBody.Companion.toRequestBody
 import java.io.IOException
+import java.util.Locale
 import java.util.concurrent.TimeUnit
 
 /** Blocking network calls. Call from Dispatchers.IO. */
@@ -34,10 +35,12 @@ class Net {
         return parseAiMeal(extractAiText(s.aiProvider, text))
     }
 
+    private fun lang(s: Settings) = s.foodLanguage.ifBlank { Locale.getDefault().language }
+
     /** Barcode lookup: Open Food Facts first, USDA branded foods as a fallback. */
     fun barcode(raw: String, s: Settings): FoodHit? {
         val code = normalizeBarcode(raw) ?: return null
-        parseOffProduct(get(offProductUrl(s.offBaseUrl, code)), code)?.let { return it }
+        parseOffProduct(get(offProductUrl(s.offBaseUrl, code, lang(s))), code, lang(s))?.let { return it }
         if (s.usdaApiKey.isNotBlank()) {
             val hits = runCatching { parseUsdaSearch(get(usdaSearchUrl(code, s.usdaApiKey))) }.getOrDefault(emptyList())
             hits.firstOrNull { it.barcode?.trimStart('0') == code.trimStart('0') }?.let { return it }
@@ -46,7 +49,7 @@ class Net {
     }
 
     fun search(query: String, s: Settings): List<FoodHit> = when (s.foodProvider) {
-        FoodProvider.OPEN_FOOD_FACTS -> parseOffSearch(get(offSearchUrl(s.offBaseUrl, query)))
+        FoodProvider.OPEN_FOOD_FACTS -> parseOffSearch(get(offSearchUrl(s.offBaseUrl, query, lang(s))), lang(s))
         FoodProvider.USDA -> parseUsdaSearch(get(usdaSearchUrl(query, s.usdaApiKey)))
     }
 

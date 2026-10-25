@@ -29,6 +29,7 @@ data class Settings(
     val foodProvider: FoodProvider = FoodProvider.OPEN_FOOD_FACTS,
     val offBaseUrl: String = "https://world.openfoodfacts.org",
     val usdaApiKey: String = "DEMO_KEY",
+    val foodLanguage: String = "",          // "" = device language, e.g. "pt"
     // Goal / energy
     val autoGoal: Boolean = true,
     val manualGoalKcal: Int = 2000,
@@ -78,7 +79,8 @@ data class Settings(
         defaultServingGrams = defaultServingGrams.coerceIn(1, 2000),
         hcLookbackDays = hcLookbackDays.coerceIn(1, 60),
         glassStrength = glassStrength.coerceIn(0f, 1f),
-        accentHex = if (parseHexColor(accentHex) != null) accentHex else "#5B9BFF"
+        accentHex = if (parseHexColor(accentHex) != null) accentHex else "#5B9BFF",
+        foodLanguage = foodLanguage.filter { it.isLetter() }.take(5).lowercase()
     )
 
     fun toJson(includeSecrets: Boolean = true): JSONObject = JSONObject().apply {
@@ -96,6 +98,7 @@ data class Settings(
         put("foodProvider", foodProvider.name)
         put("offBaseUrl", offBaseUrl)
         if (includeSecrets) put("usdaApiKey", usdaApiKey)
+        put("foodLanguage", foodLanguage)
         put("autoGoal", autoGoal)
         put("manualGoalKcal", manualGoalKcal)
         put("sex", sex.name)
@@ -146,6 +149,7 @@ data class Settings(
                 foodProvider = e("foodProvider", base.foodProvider, FoodProvider.values()),
                 offBaseUrl = s("offBaseUrl", base.offBaseUrl),
                 usdaApiKey = s("usdaApiKey", base.usdaApiKey),
+                foodLanguage = s("foodLanguage", base.foodLanguage),
                 autoGoal = b("autoGoal", base.autoGoal),
                 manualGoalKcal = i("manualGoalKcal", base.manualGoalKcal),
                 sex = e("sex", base.sex, Sex.values()),

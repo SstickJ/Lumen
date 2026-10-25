@@ -230,8 +230,10 @@ class CoreTest {
     }
 
     @Test fun urlBuilders() {
-        assertEquals("https://world.openfoodfacts.org/api/v2/product/5449000000996.json?fields=code,product_name,product_name_en,generic_name,brands,nutriments,serving_quantity",
+        assertEquals("https://world.openfoodfacts.org/api/v2/product/5449000000996.json?fields=code,product_name,product_name_en,generic_name,abbreviated_product_name,brands,nutriments,serving_quantity",
             offProductUrl("https://world.openfoodfacts.org/", "5449000000996"))
+        assertTrue(offProductUrl("https://x", "1", "PT").contains("product_name_pt"))
+        assertTrue(offSearchUrl("https://x", "agua", "pt").contains("&lc=pt"))
         assertTrue(offSearchUrl("https://pt.openfoodfacts.org", "arroz & feijão").contains("search_terms=arroz+%26+feij%C3%A3o"))
         assertTrue(usdaSearchUrl("egg", "").endsWith("api_key=DEMO_KEY"))
     }
@@ -264,5 +266,42 @@ class CoreTest {
         assertEquals(588.0, estimateBurn(9.8, 60.0, 60), 0.001)
         assertEquals(294.0, estimateBurn(9.8, 60.0, 30), 0.001)
         assertTrue(EXERCISE_METS.any { it.first == "Running" })
+    }
+
+    @Test fun portugueseOnlyProductNameIsFound() {
+        val pt = """{"status":1,"product":{"code":"5601234567890","product_name_pt":"Água Mineral Natural","brands":"Luso","nutriments":{"energy-kcal_100g":0}}}"""
+        val h = parseOffProduct(pt, "5601234567890", "pt")!!
+        assertEquals("Água Mineral Natural", h.name); assertTrue(h.hasNutrition); assertEquals(0.0, h.kcalPer100, 0.0001)
+        // language not requested: still found through any product_name_* key
+        assertEquals("Água Mineral Natural", parseOffProduct(pt, "5601234567890")!!.name)
+        // no name at all: falls back to the brand, then to a placeholder, but is never "not found"
+        assertEquals("Luso", parseOffProduct("""{"status":1,"product":{"brands":"Luso","nutriments":{}}}""", "1")!!.name)
+        val bare = parseOffProduct("""{"status":1,"product":{"nutriments":{}}}""", "123")!!
+        assertEquals("Unnamed product", bare.name); assertFalse(bare.hasNutrition); assertEquals("123", bare.barcode)
+    }
+
+    @Test fun burnPrefersActiveThenTotalThenEstimate() {
+        val s = 1_000_000L; val e = s + 10 * 60_000L          // 10 minute workout
+        val exact = EnergyRec(s, e, 4.0)
+        assertEquals(4.0, pickBurn(s, e, listOf(exact), emptyList(), 50.0).kcal, 0.001)
+        assertEquals("active", pickBurn(s, e, listOf(exact), emptyList(), 50.0).source)
+        // a day-long active record gives only a sliver for the workout -> ignored, total record used
+        val dayLong = EnergyRec(s - 12 * 3600_000L, s + 12 * 3600_000L, 20.0)
+        val tot = EnergyRec(s, e, 4.2)
+        val p = pickBurn(s, e, listOf(dayLong), listOf(tot), 50.0)
+        assertEquals(4.2, p.kcal, 0.001); assertEquals("total", p.source)
+        // nothing usable -> estimate, never 0
+        val none = pickBurn(s, e, listOf(dayLong), emptyList(), 50.0)
+        assertEquals(50.0, none.kcal, 0.001); assertEquals("estimate", none.source)
+        // prorated when it is the only data and large enough
+        val big = EnergyRec(s - 50 * 60_000L, e, 70.0)          // 60 min record, 10 min inside
+        assertEquals(11.666, pickBurn(s, e, listOf(big), emptyList(), 50.0).kcal, 0.01)
+        assertEquals(0.0, overlapKcal(s, e, EnergyRec(e + 1, e + 100, 9.0)), 0.0)
+        assertEquals(3.0, overlapKcal(s, e, EnergyRec(s + 5, s + 5, 3.0)), 0.0)
+    }
+
+    @Test fun foodLanguageSetting() {
+        assertEquals("pt", Settings.fromJson(JSONObject("""{"foodLanguage":" PT-pt! "}""")).foodLanguage.take(2))
+        assertEquals("", Settings().foodLanguage)
     }
 }

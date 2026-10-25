@@ -3,6 +3,7 @@ package app.lumen.ui
 import android.Manifest
 import android.content.pm.PackageManager
 import android.net.Uri
+import android.util.Size
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.PickVisualMediaRequest
 import androidx.activity.result.contract.ActivityResultContracts
@@ -13,6 +14,8 @@ import androidx.camera.core.ImageCapture
 import androidx.camera.core.ImageCaptureException
 import androidx.camera.core.ImageProxy
 import androidx.camera.core.Preview
+import androidx.camera.core.resolutionselector.ResolutionSelector
+import androidx.camera.core.resolutionselector.ResolutionStrategy
 import androidx.camera.lifecycle.ProcessCameraProvider
 import androidx.camera.view.PreviewView
 import androidx.compose.foundation.Canvas
@@ -23,7 +26,11 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.ChevronLeft
 import androidx.compose.material.icons.rounded.PhotoLibrary
+import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.*
+import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -77,6 +84,8 @@ fun ScanScreen(vm: AppViewModel, onBack: () -> Unit) {
     LaunchedEffect(Unit) { if (!granted) permLauncher.launch(Manifest.permission.CAMERA) }
 
     var barcodeMode by remember { mutableStateOf(false) }
+    var showTyped by remember { mutableStateOf(false) }
+    var typed by remember { mutableStateOf("") }
     val barcodeModeNow by rememberUpdatedState(barcodeMode)
     val gallery = rememberLauncherForActivityResult(ActivityResultContracts.PickVisualMedia()) { uri: Uri? -> if (uri != null) vm.analyzePhoto(uri) }
 
@@ -92,7 +101,13 @@ fun ScanScreen(vm: AppViewModel, onBack: () -> Unit) {
                 val p = future.get()
                 provider = p
                 val preview = Preview.Builder().build().also { it.setSurfaceProvider(previewView.surfaceProvider) }
+                // Small barcodes on curved bottles need more pixels than the 640x480 default.
                 val analysis = ImageAnalysis.Builder()
+                    .setResolutionSelector(
+                        ResolutionSelector.Builder()
+                            .setResolutionStrategy(ResolutionStrategy(Size(1920, 1080), ResolutionStrategy.FALLBACK_RULE_CLOSEST_LOWER_THEN_HIGHER))
+                            .build()
+                    )
                     .setBackpressureStrategy(ImageAnalysis.STRATEGY_KEEP_ONLY_LATEST).build()
                     .also { a -> a.setAnalyzer(analysisExecutor, BarcodeAnalyzer { code -> if (barcodeModeNow) vm.lookupBarcode(code) }) }
                 p.unbindAll()
@@ -155,6 +170,7 @@ fun ScanScreen(vm: AppViewModel, onBack: () -> Unit) {
                 if (barcodeMode) "Point at a barcode. It scans automatically." else "Frame your meal, then tap the shutter.",
                 13.sp, color = Color.White, modifier = Modifier.padding(bottom = 18.dp)
             )
+            if (barcodeMode) Chip("Type barcode instead", false, { showTyped = true }, Modifier.padding(bottom = 14.dp))
             Row(Modifier.fillMaxWidth().padding(horizontal = 40.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.SpaceBetween) {
                 IconCircle(Icons.Rounded.PhotoLibrary, { gallery.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)) }, 52.dp, tint = Color.White, desc = "Gallery")
                 Box(
@@ -165,4 +181,12 @@ fun ScanScreen(vm: AppViewModel, onBack: () -> Unit) {
             }
         }
     }
+
+    if (showTyped) AlertDialog(
+        onDismissRequest = { showTyped = false }, containerColor = c.bgBottom,
+        title = { T("Type the barcode", 18.sp, FontWeight.SemiBold) },
+        text = { GlassField(typed, { typed = it }, "Digits under the barcode", keyboardType = KeyboardType.Number) },
+        confirmButton = { TextButton({ showTyped = false; vm.lookupBarcode(typed, force = true); typed = "" }) { Text("Look up") } },
+        dismissButton = { TextButton({ showTyped = false }) { Text("Cancel") } }
+    )
 }

@@ -5,15 +5,18 @@ import androidx.health.connect.client.HealthConnectClient
 import androidx.health.connect.client.permission.HealthPermission
 import androidx.health.connect.client.records.ActiveCaloriesBurnedRecord
 import androidx.health.connect.client.records.ExerciseSessionRecord
-import androidx.health.connect.client.request.AggregateRequest
+import androidx.health.connect.client.records.TotalCaloriesBurnedRecord
 import androidx.health.connect.client.request.ReadRecordsRequest
 import androidx.health.connect.client.time.TimeRangeFilter
+import app.lumen.core.EnergyRec
 import app.lumen.core.Settings
 import app.lumen.core.estimateBurn
+import app.lumen.core.pickBurn
 import app.lumen.data.ExerciseRow
 import app.lumen.data.LumenDao
 import java.time.Duration
 import java.time.Instant
+import kotlin.math.roundToInt
 
 enum class HcState { UNAVAILABLE, NEEDS_INSTALL, NEEDS_PERMISSION, READY }
 
@@ -21,7 +24,8 @@ enum class HcState { UNAVAILABLE, NEEDS_INSTALL, NEEDS_PERMISSION, READY }
 object HealthSync {
     val permissions: Set<String> = setOf(
         HealthPermission.getReadPermission(ExerciseSessionRecord::class),
-        HealthPermission.getReadPermission(ActiveCaloriesBurnedRecord::class)
+        HealthPermission.getReadPermission(ActiveCaloriesBurnedRecord::class),
+        HealthPermission.getReadPermission(TotalCaloriesBurnedRecord::class)
     )
 
     suspend fun state(ctx: Context): HcState = when (HealthConnectClient.getSdkStatus(ctx)) {
@@ -33,34 +37,46 @@ object HealthSync {
         else -> HcState.UNAVAILABLE
     }
 
-    /** Returns the number of workout sessions processed. Re-syncing is idempotent (keyed by session id). */
-    suspend fun sync(ctx: Context, s: Settings, dao: LumenDao): Int {
+    data class SyncReport(val sessions: Int, val lines: List<String>)
+
+    /** Re-syncing is idempotent (keyed by session id), so a corrected calorie value replaces an old one. */
+    suspend fun sync(ctx: Context, s: Settings, dao: LumenDao): SyncReport {
         val client = HealthConnectClient.getOrCreate(ctx)
         val end = Instant.now()
         val start = end.minus(Duration.ofDays(s.hcLookbackDays.toLong()))
         val sessions = client.readRecords(
             ReadRecordsRequest(ExerciseSessionRecord::class, TimeRangeFilter.between(start, end))
         ).records
+        val lines = mutableListOf<String>()
         for (sess in sessions) {
-            val minutes = Duration.between(sess.startTime, sess.endTime).toMinutes().toInt().coerceAtLeast(1)
-            val active = client.aggregate(
-                AggregateRequest(
-                    setOf(ActiveCaloriesBurnedRecord.ACTIVE_CALORIES_TOTAL),
-                    TimeRangeFilter.between(sess.startTime, sess.endTime)
-                )
-            )[ActiveCaloriesBurnedRecord.ACTIVE_CALORIES_TOTAL]?.inKilocalories ?: 0.0
-            // No calorie data from the watch: fall back to a MET estimate so the workout still counts.
-            val kcal = if (active > 0.0) active else estimateBurn(5.0, s.weightKg, minutes)
+            val sessEnd = if (sess.endTime.isAfter(sess.startTime)) sess.endTime else sess.startTime.plusSeconds(60)
+            val minutes = Duration.between(sess.startTime, sessEnd).toMinutes().toInt().coerceAtLeast(1)
+            val window = TimeRangeFilter.between(sess.startTime, sessEnd)
+            val origin = sess.metadata.dataOrigin.packageName
+
+            // Mi Fitness may write calories as Active or as Total records, possibly with a different time span.
+            val active = client.readRecords(ReadRecordsRequest(ActiveCaloriesBurnedRecord::class, window)).records
+                .map { it.metadata.dataOrigin.packageName to EnergyRec(it.startTime.toEpochMilli(), it.endTime.toEpochMilli(), it.energy.inKilocalories) }
+            val total = runCatching {
+                client.readRecords(ReadRecordsRequest(TotalCaloriesBurnedRecord::class, window)).records
+                    .map { it.metadata.dataOrigin.packageName to EnergyRec(it.startTime.toEpochMilli(), it.endTime.toEpochMilli(), it.energy.inKilocalories) }
+            }.getOrDefault(emptyList())
+            fun fromOrigin(l: List<Pair<String, EnergyRec>>) = l.filter { it.first == origin }.ifEmpty { l }.map { it.second }
+
+            val pick = pickBurn(
+                sess.startTime.toEpochMilli(), sessEnd.toEpochMilli(), fromOrigin(active), fromOrigin(total),
+                estimateBurn(5.0, s.weightKg, minutes)
+            )
+            val name = sess.title?.takeIf { it.isNotBlank() } ?: typeName(sess.exerciseType)
             dao.insertExercise(
                 ExerciseRow(
-                    ts = sess.startTime.toEpochMilli(),
-                    name = sess.title?.takeIf { it.isNotBlank() } ?: typeName(sess.exerciseType),
-                    minutes = minutes, kcal = kcal, source = "HEALTH_CONNECT",
-                    externalId = "hc:" + sess.metadata.id
+                    ts = sess.startTime.toEpochMilli(), name = name, minutes = minutes, kcal = pick.kcal,
+                    source = "HEALTH_CONNECT", externalId = "hc:" + sess.metadata.id
                 )
             )
+            lines += "$name, $minutes min: ${pick.kcal.roundToInt()} kcal (${pick.source})"
         }
-        return sessions.size
+        return SyncReport(sessions.size, lines)
     }
 
     private fun typeName(t: Int): String = when (t) {

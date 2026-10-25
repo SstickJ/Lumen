@@ -89,6 +89,7 @@ fun SettingsScreen(vm: AppViewModel, onBack: () -> Unit) {
                 val fp = FoodProvider.values().toList()
                 ChipRow(fp.map { if (it == FoodProvider.USDA) "USDA" else "Open Food Facts" }, fp.indexOf(s.foodProvider)) { i -> vm.update { it.copy(foodProvider = fp[i]) } }
                 GlassField(s.offBaseUrl, { v -> vm.update { it.copy(offBaseUrl = v) } }, "Open Food Facts URL")
+                GlassField(s.foodLanguage, { v -> vm.update { it.copy(foodLanguage = v) } }, "Product language (blank = device language)", placeholder = "pt")
                 GlassField(s.usdaApiKey, { v -> vm.update { it.copy(usdaApiKey = v) } }, "USDA API key (DEMO_KEY works, rate limited)")
                 Hint("Barcodes always use Open Food Facts, with USDA branded foods as fallback. The provider above is used when searching ingredients. Try pt.openfoodfacts.org for Portuguese products.")
             }

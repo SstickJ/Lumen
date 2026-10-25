@@ -16,13 +16,20 @@ fun normalizeBarcode(raw: String): String? {
     }
 }
 
-private const val OFF_FIELDS = "code,product_name,product_name_en,generic_name,brands,nutriments,serving_quantity"
+private fun cleanLang(lang: String) = lang.filter { it.isLetter() }.take(5).lowercase()
 
-fun offProductUrl(base: String, barcode: String) =
-    "${base.trim().trimEnd('/')}/api/v2/product/${enc(barcode)}.json?fields=$OFF_FIELDS"
+private fun offFields(lang: String): String {
+    val l = cleanLang(lang)
+    val extra = if (l.isNotEmpty()) ",product_name_$l" else ""
+    return "code,product_name,product_name_en$extra,generic_name,abbreviated_product_name,brands,nutriments,serving_quantity"
+}
 
-fun offSearchUrl(base: String, query: String) =
-    "${base.trim().trimEnd('/')}/cgi/search.pl?search_terms=${enc(query)}&search_simple=1&action=process&json=1&page_size=25&fields=$OFF_FIELDS"
+fun offProductUrl(base: String, barcode: String, lang: String = "") =
+    "${base.trim().trimEnd('/')}/api/v2/product/${enc(barcode)}.json?fields=${offFields(lang)}"
+
+fun offSearchUrl(base: String, query: String, lang: String = "") =
+    "${base.trim().trimEnd('/')}/cgi/search.pl?search_terms=${enc(query)}&search_simple=1&action=process&json=1&page_size=25" +
+        (if (cleanLang(lang).isNotEmpty()) "&lc=${cleanLang(lang)}" else "") + "&fields=${offFields(lang)}"
 
 fun usdaSearchUrl(query: String, apiKey: String) =
     "https://api.nal.usda.gov/fdc/v1/foods/search?query=${enc(query)}&pageSize=25&dataType=Foundation,SR%20Legacy,Branded&api_key=${enc(apiKey.ifBlank { "DEMO_KEY" })}"
@@ -33,15 +40,31 @@ private fun JSONObject.num(key: String): Double? {
     return if (v.isNaN()) null else v
 }
 
-private fun offHit(p: JSONObject, fallbackCode: String?): FoodHit? {
-    val name = listOf("product_name", "product_name_en", "generic_name")
-        .map { p.optString(it, "").trim() }.firstOrNull { it.isNotEmpty() } ?: return null
+/** Many European products only carry a localized name (product_name_pt), so try the user's language and then anything. */
+private fun offName(p: JSONObject, lang: String): String? {
+    val l = cleanLang(lang)
+    val keys = buildList {
+        if (l.isNotEmpty()) add("product_name_$l")
+        add("product_name"); add("product_name_en"); add("generic_name"); add("abbreviated_product_name")
+    }
+    keys.map { p.optString(it, "").trim() }.firstOrNull { it.isNotEmpty() }?.let { return it }
+    val it = p.keys()
+    while (it.hasNext()) {
+        val k = it.next()
+        if (k.startsWith("product_name")) p.optString(k, "").trim().let { v -> if (v.isNotEmpty()) return v }
+    }
+    return null
+}
+
+private fun offHit(p: JSONObject, fallbackCode: String?, lang: String): FoodHit {
     val nut = p.optJSONObject("nutriments")
     val kcal = nut?.num("energy-kcal_100g") ?: nut?.num("energy_100g")?.let { it / 4.184 }
     val brand = p.optString("brands", "").split(",").firstOrNull()?.trim()?.ifEmpty { null }
+    val realName = offName(p, lang)
+    val name = realName ?: brand ?: "Unnamed product"
     val serving = p.num("serving_quantity")?.takeIf { it > 0.0 }
     return FoodHit(
-        name = name, brand = brand,
+        name = name, brand = if (realName == null) null else brand,
         kcalPer100 = kcal ?: 0.0,
         proteinPer100 = nut?.num("proteins_100g") ?: 0.0,
         carbsPer100 = nut?.num("carbohydrates_100g") ?: 0.0,
@@ -52,17 +75,17 @@ private fun offHit(p: JSONObject, fallbackCode: String?): FoodHit? {
     )
 }
 
-/** Returns null when the barcode is unknown (status 0 / no product). */
-fun parseOffProduct(json: String, barcode: String): FoodHit? {
+/** Returns null only when the barcode is unknown (status 0 / no product). */
+fun parseOffProduct(json: String, barcode: String, lang: String = ""): FoodHit? {
     val o = try { JSONObject(json) } catch (e: Exception) { return null }
     if (o.optInt("status", 0) != 1) return null
     val p = o.optJSONObject("product") ?: return null
-    return offHit(p, barcode)
+    return offHit(p, barcode, lang)
 }
 
-fun parseOffSearch(json: String): List<FoodHit> {
+fun parseOffSearch(json: String, lang: String = ""): List<FoodHit> {
     val arr: JSONArray = try { JSONObject(json).optJSONArray("products") } catch (e: Exception) { null } ?: return emptyList()
-    return (0 until arr.length()).mapNotNull { i -> arr.optJSONObject(i)?.let { offHit(it, null) } }.filter { it.hasNutrition }
+    return (0 until arr.length()).mapNotNull { i -> arr.optJSONObject(i)?.let { offHit(it, null, lang) } }.filter { it.hasNutrition && it.name != "Unnamed product" }
 }
 
 fun parseUsdaSearch(json: String): List<FoodHit> {
