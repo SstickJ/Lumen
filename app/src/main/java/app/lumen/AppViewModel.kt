@@ -23,6 +23,7 @@ import org.json.JSONObject
 import java.io.File
 import java.time.Instant
 import java.time.LocalDate
+import java.time.YearMonth
 import java.time.ZoneId
 
 sealed interface UiEvent {
@@ -58,6 +59,16 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
     // ---------- day selection ----------
     private val _date = MutableStateFlow(dayOf(System.currentTimeMillis(), zone, store.flow.value.dayStartHour))
     val date: StateFlow<LocalDate> = _date
+    fun setDate(d: LocalDate) { _date.value = d }
+
+    /** Days in [month] that have at least one logged meal (for the calendar dots). */
+    fun loggedDays(month: YearMonth): Flow<Set<LocalDate>> {
+        val h = settings.value.dayStartHour
+        val from = dayRangeMs(month.atDay(1), zone, h).first
+        val to = dayRangeMs(month.atEndOfMonth(), zone, h).second
+        return dao.entries(from, to).map { list -> list.map { dayOf(it.entry.ts, zone, h) }.toSet() }
+    }
+
     fun shiftDay(n: Long) { _date.value = _date.value.plusDays(n) }
     fun goToday() { _date.value = todayLogical() }
     fun todayLogical(): LocalDate = dayOf(System.currentTimeMillis(), zone, settings.value.dayStartHour)
@@ -110,7 +121,7 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
     val draft: StateFlow<Draft?> = _draft
     private val _events = Channel<UiEvent>(Channel.BUFFERED)
     val events = _events.receiveAsFlow()
-    private val _hc = MutableStateFlow(HcState.UNAVAILABLE)
+    private val _hc = MutableStateFlow(HcState.UNKNOWN)
     val hc: StateFlow<HcState> = _hc
 
     private fun msg(t: String) { _events.trySend(UiEvent.Message(t)) }
@@ -157,15 +168,21 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
     fun testAi() = launchSafe {
         _busy.value = "Testing AI connection…"
         val jpg = io { Images.blankJpeg() }
-        val r = io { runCatching { net.analyze(jpg, settings.value) } }
-        _busy.value = null
-        msg(r.fold(
-            { "AI connection works ✓" },
-            { e ->
-                if (e is AiParseException && !(e.message ?: "").startsWith("HTTP")) "Reached the model, but its reply wasn't usable: ${e.message}"
-                else "AI test failed: ${e.message}"
+        val lines = io {
+            settings.value.aiChain().mapIndexed { i, ep ->
+                val name = if (i == 0) "Primary" else "Fallback $i"
+                if (!ep.aiHasCredentials()) "$name (${ep.aiLabel()}): no API key"
+                else runCatching { net.analyze(jpg, ep) }.fold(
+                    { "$name (${ep.aiLabel()}): works ✓" },
+                    { e ->
+                        if (e is AiParseException && !(e.message ?: "").startsWith("HTTP")) "$name (${ep.aiLabel()}): reached, but the reply wasn't usable"
+                        else "$name (${ep.aiLabel()}): failed, ${e.message}"
+                    }
+                )
             }
-        ))
+        }
+        _busy.value = null
+        msg(lines.joinToString("\n"))
     }
 
     // ---------- logging flow ----------
@@ -191,13 +208,14 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
 
     fun analyzePhoto(uri: Uri) = launchSafe {
         val s = settings.value
-        val needsKey = s.aiApiKey.isBlank() && (s.aiProvider != AiProvider.OPENAI || s.effectiveBase.contains("api.openai.com"))
-        if (needsKey) { msg("Add your AI API key in Settings first."); return@launchSafe }
+        if (!s.aiUsable()) { msg("Add your AI API key in Settings first."); return@launchSafe }
         _busy.value = "Analyzing your meal…"
         val bytes = io { Images.prepare(ctx, uri, s.aiMaxImagePx, s.aiJpegQuality) }
         val photo = io { Images.savePhoto(ctx, bytes) }
-        val meal = io { net.analyze(bytes, s) }
+        val run = io { net.analyzeChain(bytes, s) }
+        val meal = run.meal
         _busy.value = null
+        if (run.index > 0) msg("The primary model failed, so ${run.label} was used.")
         if (!meal.isFood) { msg("No food detected in that photo."); return@launchSafe }
         val ts = newTs()
         finishDraft(Draft(ts = ts, name = meal.dish, meal = mealAt(ts), ingredients = meal.ingredients,

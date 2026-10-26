@@ -3,7 +3,6 @@ package app.lumen.ui
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
-import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -35,7 +34,7 @@ private val tabs = listOf(
 
 val tabRoutes: List<String> = tabs.map { it.route }
 
-/** Glass tab pill with a separate round Scan button beside it. */
+/** Glass tab pill (blurs whatever scrolls under it) with a separate round Scan button beside it. */
 @Composable
 fun TabBar(route: String?, onTab: (String) -> Unit, onScan: () -> Unit, modifier: Modifier = Modifier) {
     val c = LocalLumen.current
@@ -43,14 +42,13 @@ fun TabBar(route: String?, onTab: (String) -> Unit, onScan: () -> Unit, modifier
         modifier.fillMaxWidth().navigationBarsPadding().padding(horizontal = 18.dp).padding(bottom = 12.dp),
         verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)
     ) {
-        Row(Modifier.weight(1f).glass(RoundedCornerShape(50)).padding(6.dp), horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+        Row(Modifier.weight(1f).glass(RoundedCornerShape(50), blur = true).padding(6.dp), horizontalArrangement = Arrangement.spacedBy(4.dp)) {
             tabs.forEach { t ->
                 val sel = route == t.route
                 val bg by animateColorAsState(if (sel) c.accent.copy(alpha = 0.22f) else Color.Transparent, tween(220), label = "tab")
                 Column(
-                    Modifier.weight(1f).clip(RoundedCornerShape(50))
-                        .background(bg)
-                        .clickable { if (!sel) onTab(t.route) }.padding(vertical = 8.dp),
+                    Modifier.weight(1f).bounceClick(scale = 0.92f) { if (!sel) onTab(t.route) }
+                        .clip(RoundedCornerShape(50)).background(bg).padding(vertical = 8.dp),
                     horizontalAlignment = Alignment.CenterHorizontally
                 ) {
                     Icon(t.icon, t.label, tint = if (sel) c.accent else c.dim, modifier = Modifier.size(22.dp))
@@ -59,9 +57,8 @@ fun TabBar(route: String?, onTab: (String) -> Unit, onScan: () -> Unit, modifier
             }
         }
         Box(
-            Modifier.size(62.dp).clip(CircleShape)
-                .background(Brush.verticalGradient(listOf(c.accent, c.accent.copy(alpha = 0.75f))))
-                .clickable(onClick = onScan),
+            Modifier.size(62.dp).bounceClick(scale = 0.9f, onClick = onScan)
+                .clip(CircleShape).background(Brush.verticalGradient(listOf(c.accent, c.accent.copy(alpha = 0.75f)))),
             contentAlignment = Alignment.Center
         ) { Icon(Icons.Rounded.CameraAlt, "Scan", tint = if (c.dark) Color.Black else Color.White, modifier = Modifier.size(28.dp)) }
     }

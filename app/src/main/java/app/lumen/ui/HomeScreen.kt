@@ -76,7 +76,7 @@ fun HomeScreen(vm: AppViewModel, onActivity: () -> Unit, onManual: () -> Unit, o
         contentPadding = PaddingValues(start = 22.dp, end = 22.dp, top = 8.dp, bottom = 130.dp),
         verticalArrangement = Arrangement.spacedBy(22.dp)
     ) {
-        item { DateNav(date, isToday, { vm.shiftDay(-1) }, { vm.shiftDay(1) }, { vm.goToday() }) }
+        item { DateNav(vm) }
 
         // Status: plain text, no box.
         item {
@@ -116,7 +116,7 @@ fun HomeScreen(vm: AppViewModel, onActivity: () -> Unit, onManual: () -> Unit, o
                 Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
                     T("Meals", 13.sp, FontWeight.SemiBold, c.dim, Modifier.weight(1f))
                     Row(
-                        Modifier.clip(RoundedCornerShape(50)).clickable(onClick = onManual).padding(horizontal = 8.dp, vertical = 4.dp),
+                        Modifier.bounceClick(scale = 0.92f, onClick = onManual).padding(horizontal = 8.dp, vertical = 4.dp),
                         verticalAlignment = Alignment.CenterVertically
                     ) {
                         Icon(Icons.Rounded.Add, null, tint = c.accent, modifier = Modifier.size(16.dp))
@@ -166,7 +166,7 @@ private fun EntryRow(e: EntryWithIngredients, onClick: () -> Unit) {
     val c = LocalLumen.current
     val kcal = remember(e) { e.sum().kcal.roundToInt() }
     val time = remember(e.entry.ts) { Instant.ofEpochMilli(e.entry.ts).atZone(ZoneId.systemDefault()).format(timeFmt) }
-    Row(Modifier.fillMaxWidth().clickable(onClick = onClick).padding(horizontal = 12.dp, vertical = 10.dp), verticalAlignment = Alignment.CenterVertically) {
+    Row(Modifier.fillMaxWidth().bounceClick(scale = 0.98f, onClick = onClick).padding(horizontal = 12.dp, vertical = 10.dp), verticalAlignment = Alignment.CenterVertically) {
         val photo = remember(e.entry.photoPath) { e.entry.photoPath?.let { File(it) }?.takeIf { it.exists() } }
         Box(Modifier.size(44.dp).clip(RoundedCornerShape(14.dp)).background(c.dim.copy(alpha = 0.12f)), contentAlignment = Alignment.Center) {
             if (photo != null) AsyncImage(photo, null, Modifier.fillMaxSize(), contentScale = ContentScale.Crop)
@@ -185,7 +185,7 @@ private fun EntryRow(e: EntryWithIngredients, onClick: () -> Unit) {
 @Composable
 private fun ExerciseLine(x: ExerciseRow, onClick: () -> Unit) {
     val c = LocalLumen.current
-    Row(Modifier.fillMaxWidth().clickable(onClick = onClick).padding(horizontal = 12.dp, vertical = 10.dp), verticalAlignment = Alignment.CenterVertically) {
+    Row(Modifier.fillMaxWidth().bounceClick(scale = 0.98f, onClick = onClick).padding(horizontal = 12.dp, vertical = 10.dp), verticalAlignment = Alignment.CenterVertically) {
         Icon(Icons.Rounded.FitnessCenter, null, tint = c.accent, modifier = Modifier.size(22.dp))
         Spacer(Modifier.width(12.dp))
         Column(Modifier.weight(1f)) {
@@ -214,7 +214,7 @@ private fun TrendChart(series: List<DayTotals>, s: Settings, onRange: (Int) -> U
 
     Column {
         Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-            Box(Modifier.clip(RoundedCornerShape(50)).clickable { onRange(when (s.graphDays) { 7 -> 14; 14 -> 30; else -> 7 }) }.padding(vertical = 4.dp)) {
+            Box(Modifier.bounceClick(scale = 0.95f) { onRange(when (s.graphDays) { 7 -> 14; 14 -> 30; else -> 7 }) }.padding(vertical = 4.dp)) {
                 T("Last ${s.graphDays} days", 12.sp, FontWeight.SemiBold, c.dim)
             }
             Spacer(Modifier.weight(1f))

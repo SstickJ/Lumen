@@ -197,7 +197,7 @@ private fun AddIngredientSheet(vm: AppViewModel, s: Settings, onAdd: (Ingredient
         error?.let { T(it, 12.sp, color = c.over, modifier = Modifier.padding(top = 6.dp)) }
         LazyColumn(Modifier.fillMaxWidth().heightIn(max = 260.dp).padding(top = 8.dp)) {
             items(results) { h ->
-                Column(Modifier.fillMaxWidth().clickable {
+                Column(Modifier.fillMaxWidth().bounceClick(scale = 0.98f) {
                     onAdd(IngredientDraft.fromFood(h, (h.servingGrams ?: s.defaultServingGrams.toDouble()).coerceAtLeast(1.0)))
                 }.padding(vertical = 10.dp)) {
                     T(h.name, 15.sp, FontWeight.Medium, maxLines = 2)

@@ -22,7 +22,7 @@ import java.time.LocalDate
 import java.time.Period
 import kotlin.math.roundToInt
 
-enum class HcState { UNAVAILABLE, NEEDS_INSTALL, NEEDS_PERMISSION, READY }
+enum class HcState { UNKNOWN, UNAVAILABLE, NEEDS_INSTALL, NEEDS_PERMISSION, READY }
 
 /** Imports workouts (e.g. from Mi Fitness) through Android Health Connect. */
 object HealthSync {

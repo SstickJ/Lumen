@@ -315,4 +315,53 @@ class CoreTest {
         assertEquals(12000, back.stepGoal); assertTrue(back.stepsCredit)
         assertEquals(50000, Settings.fromJson(JSONObject("""{"stepGoal":999999}""")).stepGoal)
     }
+
+    @Test fun fallbackChainOrderAndCredentials() {
+        val s = Settings(
+            aiProvider = AiProvider.GEMINI, aiApiKey = "g", aiModel = "gem-x",
+            aiFallbacks = listOf(
+                AiEndpoint(AiProvider.OPENAI, "", "gpt-x", "o"),
+                AiEndpoint(AiProvider.OPENAI, "http://192.168.1.5:11434/v1", "llava", ""),
+                AiEndpoint(AiProvider.ANTHROPIC, "", "", "")
+            )
+        )
+        val chain = s.aiChain()
+        assertEquals(4, chain.size)
+        assertEquals(listOf(AiProvider.GEMINI, AiProvider.OPENAI, AiProvider.OPENAI, AiProvider.ANTHROPIC), chain.map { it.aiProvider })
+        assertEquals("gem-x", chain[0].effectiveModel); assertEquals("gpt-x", chain[1].effectiveModel)
+        assertEquals("claude-haiku-5-5", chain[3].effectiveModel)
+        assertTrue(chain[1].aiHasCredentials())      // has a key
+        assertTrue(chain[2].aiHasCredentials())      // local server, no key needed
+        assertFalse(chain[3].aiHasCredentials())     // no key
+        assertTrue(chain.all { it.aiFallbacks.isEmpty() })
+        assertFalse(Settings().aiUsable())
+        assertTrue(Settings(aiFallbacks = listOf(AiEndpoint(AiProvider.ANTHROPIC, "", "", "k"))).aiUsable())
+        // each request builder targets its own endpoint
+        assertTrue(buildAiRequest(chain[2], "QQ").url.startsWith("http://192.168.1.5:11434/v1/chat/completions"))
+        assertEquals("k", buildAiRequest(Settings(aiProvider = AiProvider.ANTHROPIC, aiApiKey = "k"), "QQ").headers["x-api-key"])
+    }
+
+    @Test fun fallbacksRoundTripAndSecrets() {
+        val s = Settings(aiFallbacks = listOf(AiEndpoint(AiProvider.OPENAI, "http://h/v1", "m", "secret1"), AiEndpoint(AiProvider.ANTHROPIC, "", "c", "secret2")))
+        assertEquals(s, Settings.fromJson(JSONObject(s.toJson().toString())))
+        val safe = s.toJson(includeSecrets = false)
+        assertFalse(safe.toString().contains("secret1")); assertFalse(safe.toString().contains("secret2"))
+        val merged = Settings.fromJson(safe, s)
+        assertEquals("secret1", merged.aiFallbacks[0].apiKey); assertEquals("secret2", merged.aiFallbacks[1].apiKey)
+        assertEquals("m", merged.aiFallbacks[0].model)
+        // too many entries are trimmed
+        val many = JSONObject("""{"aiFallbacks":[{},{},{},{},{},{},{}]}""")
+        assertEquals(5, Settings.fromJson(many).aiFallbacks.size)
+    }
+
+    @Test fun defaultThemeIsLightAndOldSettingsMigrate() {
+        assertEquals(ThemeMode.LIGHT, Settings().themeMode)
+        val old = JSONObject("""{"v":1,"themeMode":"SYSTEM","aiModel":"keep-me"}""")
+        val migrated = Settings.fromJson(Settings.migrate(old))
+        assertEquals(ThemeMode.LIGHT, migrated.themeMode); assertEquals("keep-me", migrated.aiModel)
+        // already-migrated settings keep the user's choice
+        val cur = JSONObject("""{"v":2,"themeMode":"DARK"}""")
+        assertEquals(ThemeMode.DARK, Settings.fromJson(Settings.migrate(cur)).themeMode)
+        assertEquals(2, Settings().toJson().getInt("v"))
+    }
 }

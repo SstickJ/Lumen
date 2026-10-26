@@ -14,7 +14,7 @@ class SettingsStore(ctx: Context) {
 
     private fun load(): Settings =
         prefs.getString("json", null)
-            ?.let { runCatching { Settings.fromJson(JSONObject(it)) }.getOrNull() }
+            ?.let { runCatching { Settings.fromJson(Settings.migrate(JSONObject(it))) }.getOrNull() }
             ?: Settings()
 
     @Synchronized

@@ -63,34 +63,36 @@ fun ActivityScreen(vm: AppViewModel) {
         ) {
             Spacer(Modifier.height(4.dp))
             T("Activity", 26.sp, FontWeight.SemiBold)
-            DateNav(date, date == vm.todayLogical(), { vm.shiftDay(-1) }, { vm.shiftDay(1) }, { vm.goToday() })
+            DateNav(vm)
 
             StepsCard(date, steps, s)
 
-            Column {
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Dot(if (hc == HcState.READY) c.accent else c.warn, 10.dp)
-                    Spacer(Modifier.width(10.dp))
-                    Column(Modifier.weight(1f)) {
-                        T("Mi Fitness via Health Connect", 14.sp, FontWeight.SemiBold)
-                        T(
-                            when (hc) {
-                                HcState.READY -> "Connected. Steps and workouts sync from the last ${s.hcLookbackDays} days."
-                                HcState.NEEDS_PERMISSION -> "Allow access to steps, workouts and calories."
-                                HcState.NEEDS_INSTALL -> "Install or update Health Connect from Google Play."
-                                HcState.UNAVAILABLE -> "Health Connect isn't available on this device."
-                            }, 12.sp, color = c.dim
-                        )
+            // Only shown while Lumen has no access to Health Connect; once connected it disappears.
+            if (hc == HcState.NEEDS_PERMISSION || hc == HcState.NEEDS_INSTALL || hc == HcState.UNAVAILABLE) {
+                GlassCard(tint = c.warn, padding = 16.dp) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Dot(c.warn, 10.dp)
+                        Spacer(Modifier.width(10.dp))
+                        Column(Modifier.weight(1f)) {
+                            T("Connect Mi Fitness", 15.sp, FontWeight.SemiBold)
+                            T(
+                                when (hc) {
+                                    HcState.NEEDS_PERMISSION -> "Allow Health Connect access to import steps and workouts."
+                                    HcState.NEEDS_INSTALL -> "Install or update Health Connect from Google Play."
+                                    else -> "Health Connect isn't available on this device."
+                                }, 12.sp, color = c.dim
+                            )
+                        }
                     }
+                    if (hc == HcState.NEEDS_PERMISSION) { Spacer(Modifier.height(12.dp)); GlassButton("Grant access", { permLauncher.launch(HealthSync.permissions) }, primary = true) }
+                    T("In Mi Fitness, turn on Health Connect sync so data can reach it.", 11.sp, color = c.dim, modifier = Modifier.padding(top = 8.dp))
                 }
-                if (hc == HcState.READY) { Spacer(Modifier.height(10.dp)); GlassButton("Sync now", { vm.syncHealth() }, icon = Icons.Rounded.Sync) }
-                if (hc == HcState.NEEDS_PERMISSION) { Spacer(Modifier.height(10.dp)); GlassButton("Grant access", { permLauncher.launch(HealthSync.permissions) }, primary = true) }
-                if (hc != HcState.READY) T("In Mi Fitness, turn on Health Connect sync so data can reach it.", 11.sp, color = c.dim, modifier = Modifier.padding(top = 8.dp))
             }
 
-            Row(Modifier.fillMaxWidth().padding(top = 4.dp), verticalAlignment = Alignment.CenterVertically) {
-                T("Workouts", 13.sp, FontWeight.SemiBold, c.dim, Modifier.weight(1f).padding(start = 4.dp))
-                GlassButton("Add workout", { showAdd = true }, icon = Icons.Rounded.Add)
+            Row(Modifier.fillMaxWidth().padding(top = 4.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                T("Workouts", 13.sp, FontWeight.SemiBold, c.dim, Modifier.weight(1f).padding(start = 4.dp), maxLines = 1)
+                GlassButton("Sync now", { vm.syncHealth() }, icon = Icons.Rounded.Sync, compact = true)
+                GlassButton("Add workout", { showAdd = true }, icon = Icons.Rounded.Add, compact = true)
             }
             if (list.isEmpty()) T("No workouts on this day.", 14.sp, color = c.dim, modifier = Modifier.padding(start = 4.dp))
             else GlassCard(padding = 4.dp) {

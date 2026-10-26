@@ -10,11 +10,29 @@ import java.io.IOException
 import java.util.Locale
 import java.util.concurrent.TimeUnit
 
+/** Which endpoint of the provider chain produced the result (0 = primary). */
+data class AiRun(val meal: AiMeal, val label: String, val index: Int)
+
 /** Blocking network calls. Call from Dispatchers.IO. */
 class Net {
     private val http = OkHttpClient.Builder().connectTimeout(15, TimeUnit.SECONDS).build()
     private val ua = "Lumen/1.0 (Android; personal calorie tracker)"
 
+    /** Try the primary model, then each fallback in order, until one answers. */
+    fun analyzeChain(jpeg: ByteArray, s: Settings): AiRun {
+        val errors = mutableListOf<String>()
+        s.aiChain().forEachIndexed { i, ep ->
+            if (!ep.aiHasCredentials()) { errors += "${ep.aiLabel()}: no API key"; return@forEachIndexed }
+            try {
+                return AiRun(analyze(jpeg, ep), ep.aiLabel(), i)
+            } catch (e: Exception) {
+                errors += "${ep.aiLabel()}: ${e.message ?: e.javaClass.simpleName}"
+            }
+        }
+        throw AiParseException(errors.joinToString("\n"))
+    }
+
+    /** One request to one endpoint. */
     fun analyze(jpeg: ByteArray, s: Settings): AiMeal {
         val spec = buildAiRequest(s, Base64.encodeToString(jpeg, Base64.NO_WRAP))
         val rb = Request.Builder().url(spec.url)

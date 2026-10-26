@@ -20,6 +20,11 @@ import androidx.camera.lifecycle.ProcessCameraProvider
 import androidx.camera.view.PreviewView
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material3.Icon
+import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.unit.Dp
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.CircleShape
@@ -154,10 +159,10 @@ fun ScanScreen(vm: AppViewModel, onBack: () -> Unit) {
             Modifier.fillMaxWidth().statusBarsPadding().padding(16.dp),
             verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.SpaceBetween
         ) {
-            IconCircle(Icons.Rounded.ChevronLeft, onBack, 42.dp, tint = Color.White, desc = "Back")
+            CamCircle(Icons.Rounded.ChevronLeft, "Back", 44.dp, onBack)
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                Chip("Meal photo", !barcodeMode, { barcodeMode = false })
-                Chip("Barcode", barcodeMode, { barcodeMode = true })
+                CamPill("Meal photo", !barcodeMode) { barcodeMode = false }
+                CamPill("Barcode", barcodeMode) { barcodeMode = true }
             }
             Spacer(Modifier.size(42.dp))
         }
@@ -168,14 +173,17 @@ fun ScanScreen(vm: AppViewModel, onBack: () -> Unit) {
         ) {
             T(
                 if (barcodeMode) "Point at a barcode. It scans automatically." else "Frame your meal, then tap the shutter.",
-                13.sp, color = Color.White, modifier = Modifier.padding(bottom = 18.dp)
+                13.sp, FontWeight.Medium, Color.White,
+                Modifier.background(Color.Black.copy(alpha = 0.55f), RoundedCornerShape(50)).padding(horizontal = 14.dp, vertical = 7.dp)
             )
-            if (barcodeMode) Chip("Type barcode instead", false, { showTyped = true }, Modifier.padding(bottom = 14.dp))
+            Spacer(Modifier.height(14.dp))
+            if (barcodeMode) { CamPill("Type barcode instead", false) { showTyped = true }; Spacer(Modifier.height(14.dp)) }
             Row(Modifier.fillMaxWidth().padding(horizontal = 40.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.SpaceBetween) {
-                IconCircle(Icons.Rounded.PhotoLibrary, { gallery.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)) }, 52.dp, tint = Color.White, desc = "Gallery")
+                CamCircle(Icons.Rounded.PhotoLibrary, "Gallery", 52.dp) { gallery.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)) }
                 Box(
-                    Modifier.size(78.dp).clip(CircleShape).background(if (barcodeMode) Color.White.copy(alpha = 0.25f) else Color.White)
-                        .clickable(enabled = !barcodeMode) { shoot() }
+                    Modifier.size(78.dp).bounceClick(enabled = !barcodeMode, scale = 0.9f) { shoot() }
+                        .clip(CircleShape).background(if (barcodeMode) Color.White.copy(alpha = 0.25f) else Color.White)
+                        .border(3.dp, Color.Black.copy(alpha = 0.25f), CircleShape)
                 )
                 Spacer(Modifier.size(52.dp))
             }
@@ -189,4 +197,25 @@ fun ScanScreen(vm: AppViewModel, onBack: () -> Unit) {
         confirmButton = { TextButton({ showTyped = false; vm.lookupBarcode(typed, force = true); typed = "" }) { Text("Look up") } },
         dismissButton = { TextButton({ showTyped = false }) { Text("Cancel") } }
     )
+}
+
+/** Camera overlay controls are solid dark with white text, so they stay readable over any image. */
+@Composable
+private fun CamCircle(icon: ImageVector, desc: String, size: Dp, onClick: () -> Unit) {
+    Box(
+        Modifier.size(size).bounceClick(scale = 0.9f, onClick = onClick)
+            .clip(CircleShape).background(Color.Black.copy(alpha = 0.6f)).border(1.dp, Color.White.copy(alpha = 0.3f), CircleShape),
+        contentAlignment = Alignment.Center
+    ) { Icon(icon, desc, tint = Color.White, modifier = Modifier.size(size * 0.5f)) }
+}
+
+@Composable
+private fun CamPill(text: String, selected: Boolean, onClick: () -> Unit) {
+    val shape = RoundedCornerShape(50)
+    Box(
+        Modifier.bounceClick(scale = 0.93f, onClick = onClick)
+            .clip(shape).background(if (selected) Color.White else Color.Black.copy(alpha = 0.6f))
+            .border(1.dp, Color.White.copy(alpha = if (selected) 0f else 0.3f), shape)
+            .padding(horizontal = 16.dp, vertical = 9.dp)
+    ) { T(text, 14.sp, FontWeight.SemiBold, if (selected) Color.Black else Color.White) }
 }

@@ -1,12 +1,22 @@
 package app.lumen.ui
 
 import android.app.Activity
+import android.os.Build
+import androidx.compose.animation.animateColorAsState
+import androidx.compose.animation.core.animateDpAsState
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.spring
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.horizontalScroll
+import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.foundation.interaction.collectIsPressedAsState
 import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
@@ -15,13 +25,24 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.draw.drawWithCache
 import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.graphics.BlurEffect
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Shape
+import androidx.compose.ui.graphics.TileMode
+import androidx.compose.ui.graphics.drawscope.translate
+import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.graphics.layer.GraphicsLayer
+import androidx.compose.ui.graphics.layer.drawLayer
+import androidx.compose.ui.graphics.rememberGraphicsLayer
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
+import androidx.compose.ui.layout.onGloballyPositioned
+import androidx.compose.ui.layout.positionInWindow
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.text.font.FontWeight
@@ -29,6 +50,7 @@ import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.unit.Dp
+import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.unit.TextUnit
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -37,6 +59,7 @@ import app.lumen.core.Settings
 import app.lumen.core.ThemeMode
 import app.lumen.core.parseHexColor
 import java.util.Locale
+import kotlin.math.roundToInt
 
 @Immutable
 data class LumenColors(
@@ -50,6 +73,9 @@ data class LumenColors(
 )
 
 val LocalLumen = staticCompositionLocalOf<LumenColors> { error("LumenTheme missing") }
+
+/** The app's content, recorded once, so floating glass (tab bar, dialogs) can show a blurred copy of what is behind it. */
+val LocalBackdrop = staticCompositionLocalOf<GraphicsLayer?> { null }
 
 fun lumenColors(s: Settings, systemDark: Boolean): LumenColors {
     val dark = when (s.themeMode) { ThemeMode.SYSTEM -> systemDark; ThemeMode.DARK -> true; ThemeMode.LIGHT -> false }
@@ -112,55 +138,101 @@ fun LumenBackground(content: @Composable BoxScope.() -> Unit) {
     )
 }
 
-/** Frosted-glass surface. Brushes are cached and there is no clip, so it stays cheap even in lists and during transitions. */
+/**
+ * Frosted-glass surface. With [blur] = true (for glass that floats over other content) the content behind is
+ * blurred, so text on top stays readable. Needs Android 12+; older versions get a more opaque fill instead.
+ */
 @Composable
-fun Modifier.glass(shape: Shape = RoundedCornerShape(26.dp), tint: Color? = null): Modifier {
+fun Modifier.glass(shape: Shape = RoundedCornerShape(26.dp), tint: Color? = null, blur: Boolean = false): Modifier {
     val c = LocalLumen.current
-    val fill = remember(c.glassTop, c.glassBottom, tint) {
+    val backdrop = LocalBackdrop.current
+    val extra = if (blur) 0.10f else 0f
+    val fill = remember(c.glassTop, c.glassBottom, tint, extra) {
         if (tint != null) Brush.verticalGradient(listOf(tint.copy(alpha = 0.30f), tint.copy(alpha = 0.10f)))
-        else Brush.verticalGradient(listOf(c.glassTop, c.glassBottom))
+        else Brush.verticalGradient(listOf(
+            c.glassTop.copy(alpha = (c.glassTop.alpha + extra).coerceAtMost(1f)),
+            c.glassBottom.copy(alpha = (c.glassBottom.alpha + extra).coerceAtMost(1f))
+        ))
     }
     val edge = remember(c.edgeHi, c.edgeLo) {
         Brush.linearGradient(listOf(c.edgeHi, c.edgeLo, c.edgeHi.copy(alpha = c.edgeHi.alpha * 0.5f)))
     }
-    return this.background(fill, shape).border(BorderStroke(1.dp, edge), shape)
+    if (!blur || backdrop == null || Build.VERSION.SDK_INT < 31) {
+        return this.background(fill, shape).border(BorderStroke(1.dp, edge), shape)
+    }
+    val layer = rememberGraphicsLayer()
+    val radius = with(LocalDensity.current) { 22.dp.toPx() }
+    var pos by remember { mutableStateOf(Offset.Zero) }
+    SideEffect { layer.renderEffect = BlurEffect(radius, radius, TileMode.Clamp) }
+    return this
+        .onGloballyPositioned { pos = it.positionInWindow() }
+        .clip(shape)
+        .drawBehind {
+            // Copy the part of the recorded app content that sits under this element, blur it, draw it.
+            val sz = IntSize(size.width.roundToInt(), size.height.roundToInt())
+            layer.record(this, layoutDirection, sz) { translate(-pos.x, -pos.y) { drawLayer(backdrop) } }
+            drawLayer(layer)
+        }
+        .background(fill, shape)
+        .border(BorderStroke(1.dp, edge), shape)
+}
+
+/**
+ * iOS / HyperOS-style press: the element springs down slightly while pressed and bounces back, no ripple box.
+ * Put it BEFORE background/clip/glass in the chain so the whole element scales.
+ */
+@Composable
+fun Modifier.bounceClick(enabled: Boolean = true, scale: Float = 0.94f, onClick: () -> Unit): Modifier {
+    val source = remember { MutableInteractionSource() }
+    val pressed by source.collectIsPressedAsState()
+    val s by animateFloatAsState(
+        targetValue = if (pressed && enabled) scale else 1f,
+        animationSpec = spring(dampingRatio = 0.55f, stiffness = 520f), label = "press"
+    )
+    return this
+        .graphicsLayer { scaleX = s; scaleY = s; alpha = if (pressed && enabled) 0.92f else 1f }
+        .clickable(interactionSource = source, indication = null, enabled = enabled, onClick = onClick)
 }
 
 @Composable
 fun T(
     text: String, size: TextUnit = 15.sp, weight: FontWeight = FontWeight.Normal,
     color: Color = LocalLumen.current.text, modifier: Modifier = Modifier, maxLines: Int = Int.MAX_VALUE
-) = Text(text, modifier = modifier, color = color, fontSize = size, fontWeight = weight, maxLines = maxLines)
+) = Text(
+    text, modifier = modifier, color = color, fontSize = size, fontWeight = weight, maxLines = maxLines,
+    lineHeight = (size.value * 1.24f).sp
+)
 
 @Composable
 fun GlassCard(
     modifier: Modifier = Modifier, padding: Dp = 16.dp, tint: Color? = null,
     onClick: (() -> Unit)? = null, content: @Composable ColumnScope.() -> Unit
 ) {
-    val m = modifier.glass(tint = tint).let { if (onClick != null) it.clip(RoundedCornerShape(26.dp)).clickable(onClick = onClick) else it }
-    Column(m.padding(padding), content = content)
+    val base = if (onClick != null) modifier.bounceClick(scale = 0.98f, onClick = onClick) else modifier
+    Column(base.glass(tint = tint).padding(padding), content = content)
 }
 
 @Composable
 fun GlassButton(
     text: String, onClick: () -> Unit, modifier: Modifier = Modifier, primary: Boolean = false,
-    icon: ImageVector? = null, enabled: Boolean = true
+    icon: ImageVector? = null, enabled: Boolean = true, compact: Boolean = false
 ) {
     val c = LocalLumen.current
     val haptic = LocalHapticFeedback.current
     val shape = RoundedCornerShape(50)
-    val base = if (primary) modifier.clip(shape).background(Brush.verticalGradient(listOf(c.accent, c.accent.copy(alpha = 0.78f))))
-    else modifier.glass(shape)
+    val clickable = modifier.bounceClick(enabled = enabled) {
+        if (c.haptics) haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+        onClick()
+    }
+    val styled = if (primary) clickable.clip(shape).background(Brush.verticalGradient(listOf(c.accent, c.accent.copy(alpha = 0.78f))))
+    else clickable.glass(shape)
     Row(
-        base.clip(shape).clickable(enabled = enabled) {
-            if (c.haptics) haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
-            onClick()
-        }.padding(horizontal = 20.dp, vertical = 13.dp),
+        styled.padding(horizontal = if (compact) 14.dp else 20.dp, vertical = if (compact) 9.dp else 13.dp),
         horizontalArrangement = Arrangement.Center, verticalAlignment = Alignment.CenterVertically
     ) {
         val fg = if (!enabled) c.dim else if (primary) (if (c.dark) Color.Black else Color.White) else c.text
-        if (icon != null) { Icon(icon, null, tint = fg, modifier = Modifier.size(18.dp)); Spacer(Modifier.width(8.dp)) }
-        T(text, 15.sp, FontWeight.SemiBold, fg)
+        if (icon != null) { Icon(icon, null, tint = fg, modifier = Modifier.size(if (compact) 16.dp else 18.dp)); Spacer(Modifier.width(if (compact) 6.dp else 8.dp)) }
+        T(text, if (compact) 13.sp else 15.sp, FontWeight.SemiBold, fg)
     }
 }
 
@@ -168,16 +240,18 @@ fun GlassButton(
 fun Chip(text: String, selected: Boolean, onClick: () -> Unit, modifier: Modifier = Modifier) {
     val c = LocalLumen.current
     val shape = RoundedCornerShape(50)
-    val m = if (selected) modifier.clip(shape).background(c.accent.copy(alpha = 0.28f)).border(1.dp, c.accent.copy(alpha = 0.8f), shape)
-    else modifier.glass(shape)
-    Box(m.clip(shape).clickable(onClick = onClick).padding(horizontal = 14.dp, vertical = 8.dp), contentAlignment = Alignment.Center) {
+    val press = modifier.bounceClick(scale = 0.92f, onClick = onClick)
+    val styled = if (selected) press.clip(shape).background(c.accent.copy(alpha = 0.28f)).border(1.dp, c.accent.copy(alpha = 0.8f), shape)
+    else press.glass(shape)
+    Box(styled.padding(horizontal = 14.dp, vertical = 8.dp), contentAlignment = Alignment.Center) {
         T(text, 13.sp, if (selected) FontWeight.SemiBold else FontWeight.Normal, if (selected) c.text else c.dim)
     }
 }
 
+/** Single-line chip row that scrolls sideways instead of overflowing. */
 @Composable
 fun ChipRow(options: List<String>, selected: Int, onSelect: (Int) -> Unit) {
-    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+    Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
         options.forEachIndexed { i, o -> Chip(o, i == selected, { onSelect(i) }) }
     }
 }
@@ -187,7 +261,7 @@ fun Dot(color: Color, size: Dp = 10.dp) = Box(Modifier.size(size).clip(CircleSha
 
 @Composable
 fun IconCircle(icon: ImageVector, onClick: () -> Unit, size: Dp = 44.dp, tint: Color = LocalLumen.current.text, desc: String? = null) {
-    Box(Modifier.size(size).glass(CircleShape).clip(CircleShape).clickable(onClick = onClick), contentAlignment = Alignment.Center) {
+    Box(Modifier.size(size).bounceClick(scale = 0.9f, onClick = onClick).glass(CircleShape), contentAlignment = Alignment.Center) {
         Icon(icon, desc, tint = tint, modifier = Modifier.size(size * 0.46f))
     }
 }
@@ -230,13 +304,39 @@ fun NumField(label: String, value: Double, modifier: Modifier = Modifier, intege
     )
 }
 
+/** iOS-style toggle with a springy thumb. */
+@Composable
+fun GlassSwitch(checked: Boolean, onChange: (Boolean) -> Unit) {
+    val c = LocalLumen.current
+    val x by animateDpAsState(if (checked) 22.dp else 2.dp, spring(dampingRatio = 0.6f, stiffness = 520f), label = "thumb")
+    val track by animateColorAsState(if (checked) c.accent else c.dim.copy(alpha = 0.35f), tween(180), label = "track")
+    Box(
+        Modifier.size(width = 50.dp, height = 30.dp).bounceClick(scale = 0.94f) { onChange(!checked) }
+            .clip(RoundedCornerShape(50)).background(track)
+    ) {
+        Box(Modifier.offset(x = x, y = 2.dp).size(26.dp).clip(CircleShape).background(Color.White))
+    }
+}
+
 @Composable
 fun SwitchRow(label: String, checked: Boolean, onChange: (Boolean) -> Unit, hint: String? = null) {
     Row(Modifier.fillMaxWidth().padding(vertical = 4.dp), verticalAlignment = Alignment.CenterVertically) {
-        Column(Modifier.weight(1f)) {
+        Column(Modifier.weight(1f).padding(end = 12.dp)) {
             T(label, 15.sp)
             if (hint != null) T(hint, 12.sp, color = LocalLumen.current.dim)
         }
-        Switch(checked = checked, onCheckedChange = onChange)
+        GlassSwitch(checked, onChange)
     }
+}
+
+@Composable
+fun LumenSlider(value: Float, onChange: (Float) -> Unit, steps: Int = 0) {
+    val c = LocalLumen.current
+    Slider(
+        value, onChange, valueRange = 0f..1f, steps = steps,
+        colors = SliderDefaults.colors(
+            thumbColor = c.accent, activeTrackColor = c.accent, inactiveTrackColor = c.dim.copy(alpha = 0.25f),
+            activeTickColor = Color.Transparent, inactiveTickColor = Color.Transparent
+        )
+    )
 }

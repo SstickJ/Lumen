@@ -14,6 +14,14 @@ import androidx.compose.animation.scaleOut
 import androidx.compose.animation.slideInHorizontally
 import androidx.compose.animation.slideOutHorizontally
 import androidx.compose.foundation.background
+import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.ui.draw.drawWithContent
+import androidx.compose.ui.graphics.drawscope.DrawScope
+import androidx.compose.ui.graphics.rememberGraphicsLayer
+import androidx.compose.ui.unit.IntSize
+import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.runtime.remember
+import kotlin.math.roundToInt
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -37,6 +45,7 @@ import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.compose.rememberNavController
+import androidx.compose.ui.graphics.layer.drawLayer
 import app.lumen.ui.*
 
 class MainActivity : ComponentActivity() {
@@ -72,48 +81,63 @@ class MainActivity : ComponentActivity() {
                     }
                 }
 
-                LumenBackground {
-                    // Tabs slide a little in the direction of travel and cross-fade; full-screen pages scale in.
-                    fun tabDir(from: String?, to: String?): Int {
-                        val a = tabRoutes.indexOf(from); val b = tabRoutes.indexOf(to)
-                        return if (a < 0 || b < 0) 0 else if (b > a) 1 else -1
-                    }
-                    NavHost(
-                        nav, startDestination = "home",
-                        enterTransition = {
-                            val d = tabDir(initialState.destination.route, targetState.destination.route)
-                            if (d != 0) fadeIn(tween(240, delayMillis = 60)) + slideInHorizontally(tween(280)) { d * it / 10 }
-                            else fadeIn(tween(220)) + scaleIn(tween(260), initialScale = 0.96f)
-                        },
-                        exitTransition = {
-                            val d = tabDir(initialState.destination.route, targetState.destination.route)
-                            if (d != 0) fadeOut(tween(120)) + slideOutHorizontally(tween(280)) { -d * it / 10 }
-                            else fadeOut(tween(160))
-                        },
-                        popEnterTransition = {
-                            val d = tabDir(initialState.destination.route, targetState.destination.route)
-                            if (d != 0) fadeIn(tween(240, delayMillis = 60)) + slideInHorizontally(tween(280)) { d * it / 10 }
-                            else fadeIn(tween(200))
-                        },
-                        popExitTransition = {
-                            val d = tabDir(initialState.destination.route, targetState.destination.route)
-                            if (d != 0) fadeOut(tween(120)) + slideOutHorizontally(tween(280)) { -d * it / 10 }
-                            else fadeOut(tween(160)) + scaleOut(tween(220), targetScale = 0.96f)
+                val backdrop = rememberGraphicsLayer()
+                CompositionLocalProvider(LocalBackdrop provides backdrop) {
+                    Box(Modifier.fillMaxSize()) {
+                        // Everything the floating glass can sit on top of is drawn through this recording.
+                        // The tab bar and overlays are siblings (not inside it), so they never record themselves.
+                        Box(
+                            Modifier.fillMaxSize().drawWithContent {
+                                val sz = IntSize(size.width.roundToInt(), size.height.roundToInt())
+                                backdrop.record(this, layoutDirection, sz) { this@drawWithContent.drawContent() }
+                                drawLayer(backdrop)
+                            }
+                        ) {
+                            LumenBackground {
+                                // Tabs slide a little in the direction of travel and cross-fade; full-screen pages scale in.
+                                fun tabDir(from: String?, to: String?): Int {
+                                    val a = tabRoutes.indexOf(from); val b = tabRoutes.indexOf(to)
+                                    return if (a < 0 || b < 0) 0 else if (b > a) 1 else -1
+                                }
+                                NavHost(
+                                    nav, startDestination = "home",
+                                    enterTransition = {
+                                        val d = tabDir(initialState.destination.route, targetState.destination.route)
+                                        if (d != 0) fadeIn(tween(240, delayMillis = 60)) + slideInHorizontally(tween(280)) { d * it / 10 }
+                                        else fadeIn(tween(220)) + scaleIn(tween(260), initialScale = 0.96f)
+                                    },
+                                    exitTransition = {
+                                        val d = tabDir(initialState.destination.route, targetState.destination.route)
+                                        if (d != 0) fadeOut(tween(120)) + slideOutHorizontally(tween(280)) { -d * it / 10 }
+                                        else fadeOut(tween(160))
+                                    },
+                                    popEnterTransition = {
+                                        val d = tabDir(initialState.destination.route, targetState.destination.route)
+                                        if (d != 0) fadeIn(tween(240, delayMillis = 60)) + slideInHorizontally(tween(280)) { d * it / 10 }
+                                        else fadeIn(tween(200))
+                                    },
+                                    popExitTransition = {
+                                        val d = tabDir(initialState.destination.route, targetState.destination.route)
+                                        if (d != 0) fadeOut(tween(120)) + slideOutHorizontally(tween(280)) { -d * it / 10 }
+                                        else fadeOut(tween(160)) + scaleOut(tween(220), targetScale = 0.96f)
+                                    }
+                                ) {
+                                    composable("home") {
+                                        HomeScreen(vm, onActivity = { goTab("activity") }, onManual = { vm.startManual() }, onEntry = { vm.openEntry(it) })
+                                    }
+                                    composable("activity") { ActivityScreen(vm) }
+                                    composable("settings") { SettingsScreen(vm) }
+                                    composable("scan") { ScanScreen(vm) { nav.popBackStack() } }
+                                    composable("review") { ReviewScreen(vm) { nav.popBackStack() } }
+                                }
+                            }
                         }
-                    ) {
-                        composable("home") {
-                            HomeScreen(vm, onActivity = { goTab("activity") }, onManual = { vm.startManual() }, onEntry = { vm.openEntry(it) })
-                        }
-                        composable("activity") { ActivityScreen(vm) }
-                        composable("settings") { SettingsScreen(vm) }
-                        composable("scan") { ScanScreen(vm) { nav.popBackStack() } }
-                        composable("review") { ReviewScreen(vm) { nav.popBackStack() } }
-                    }
 
-                    if (route in tabRoutes) {
-                        TabBar(route, onTab = goTab, onScan = { nav.navigate("scan") }, modifier = Modifier.align(Alignment.BottomCenter))
+                        if (route in tabRoutes) {
+                            TabBar(route, onTab = goTab, onScan = { nav.navigate("scan") }, modifier = Modifier.align(Alignment.BottomCenter))
+                        }
+                        BusyOverlay(vm)
                     }
-                    BusyOverlay(vm)
                 }
             }
         }
@@ -126,8 +150,8 @@ private fun BusyOverlay(vm: AppViewModel) {
     val busy by vm.busy.collectAsStateWithLifecycle()
     val text = busy ?: return
     val c = LocalLumen.current
-    Box(Modifier.fillMaxSize().background(Color.Black.copy(alpha = 0.45f)).clickable(enabled = true) {}, contentAlignment = Alignment.Center) {
-        Column(Modifier.glass(RoundedCornerShape(28.dp)).padding(28.dp), horizontalAlignment = Alignment.CenterHorizontally) {
+    Box(Modifier.fillMaxSize().background(Color.Black.copy(alpha = 0.45f)).clickable(interactionSource = remember { MutableInteractionSource() }, indication = null) {}, contentAlignment = Alignment.Center) {
+        Column(Modifier.glass(RoundedCornerShape(28.dp), blur = true).padding(28.dp), horizontalAlignment = Alignment.CenterHorizontally) {
             CircularProgressIndicator(color = c.accent)
             Spacer(Modifier.height(16.dp))
             T(text, 15.sp)

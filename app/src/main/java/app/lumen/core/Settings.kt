@@ -1,5 +1,6 @@
 package app.lumen.core
 
+import org.json.JSONArray
 import org.json.JSONObject
 
 enum class AiProvider(val label: String, val defaultBase: String, val defaultModel: String) {
@@ -12,6 +13,14 @@ enum class FoodProvider(val label: String) { OPEN_FOOD_FACTS("Open Food Facts"),
 enum class ThemeMode { SYSTEM, LIGHT, DARK }
 enum class Sex { MALE, FEMALE }
 
+/** A backup model/provider tried when the previous one in the chain fails. */
+data class AiEndpoint(
+    val provider: AiProvider = AiProvider.GEMINI,
+    val baseUrl: String = "",
+    val model: String = "",
+    val apiKey: String = ""
+)
+
 /** Everything configurable at runtime. Stored as one JSON blob, so import/export/remote-config are trivial. */
 data class Settings(
     // AI vision
@@ -19,6 +28,7 @@ data class Settings(
     val aiBaseUrl: String = "",
     val aiModel: String = "",
     val aiApiKey: String = "",
+    val aiFallbacks: List<AiEndpoint> = emptyList(),
     val aiPrompt: String = DEFAULT_AI_PROMPT,
     val aiTemperature: Double? = null,
     val aiJsonMode: Boolean = true,
@@ -55,7 +65,7 @@ data class Settings(
     val stepGoal: Int = 8000,
     val stepsCredit: Boolean = false,   // add step calories to "burned" (can overlap with workouts)
     // Look
-    val themeMode: ThemeMode = ThemeMode.SYSTEM,
+    val themeMode: ThemeMode = ThemeMode.LIGHT,
     val accentHex: String = "#5B9BFF",
     val glassStrength: Float = 0.5f,
     // Remote config
@@ -65,6 +75,7 @@ data class Settings(
     val effectiveModel: String get() = aiModel.ifBlank { aiProvider.defaultModel }.trim()
 
     fun sanitized(): Settings = copy(
+        aiFallbacks = aiFallbacks.take(5),
         aiMaxImagePx = aiMaxImagePx.coerceIn(256, 4096),
         aiJpegQuality = aiJpegQuality.coerceIn(30, 100),
         aiTimeoutSec = aiTimeoutSec.coerceIn(10, 300),
@@ -87,11 +98,19 @@ data class Settings(
     )
 
     fun toJson(includeSecrets: Boolean = true): JSONObject = JSONObject().apply {
-        put("v", 1)
+        put("v", 2)
         put("aiProvider", aiProvider.name)
         put("aiBaseUrl", aiBaseUrl)
         put("aiModel", aiModel)
         if (includeSecrets) put("aiApiKey", aiApiKey)
+        put("aiFallbacks", JSONArray().apply {
+            aiFallbacks.forEach { e ->
+                put(JSONObject().apply {
+                    put("provider", e.provider.name); put("baseUrl", e.baseUrl); put("model", e.model)
+                    if (includeSecrets) put("apiKey", e.apiKey)
+                })
+            }
+        })
         put("aiPrompt", aiPrompt)
         put("aiTemperature", aiTemperature ?: JSONObject.NULL)
         put("aiJsonMode", aiJsonMode)
@@ -130,6 +149,25 @@ data class Settings(
     }
 
     companion object {
+        /** Entries without an apiKey (secret-free exports) keep the key already stored at the same position. */
+        private fun parseFallbacks(arr: JSONArray?, existing: List<AiEndpoint>): List<AiEndpoint> {
+            if (arr == null) return emptyList()
+            val out = mutableListOf<AiEndpoint>()
+            for (i in 0 until arr.length()) {
+                val o = arr.optJSONObject(i) ?: continue
+                val p = AiProvider.values().firstOrNull { it.name == o.optString("provider") } ?: AiProvider.GEMINI
+                val key = if (o.has("apiKey")) o.optString("apiKey") else existing.getOrNull(i)?.apiKey.orEmpty()
+                out += AiEndpoint(p, o.optString("baseUrl"), o.optString("model"), key)
+            }
+            return out
+        }
+
+        /** Settings saved by older versions: the default theme became light, so move old installs over once. */
+        fun migrate(j: JSONObject): JSONObject {
+            if (j.optInt("v", 1) < 2) { j.put("themeMode", "LIGHT"); j.put("v", 2) }
+            return j
+        }
+
         /** Merge [j] over [base]: keys missing from [j] keep their current value (partial imports are fine). */
         fun fromJson(j: JSONObject, base: Settings = Settings()): Settings {
             fun s(k: String, d: String) = if (j.has(k) && !j.isNull(k)) j.optString(k, d) else d
@@ -145,6 +183,7 @@ data class Settings(
                 aiBaseUrl = s("aiBaseUrl", base.aiBaseUrl),
                 aiModel = s("aiModel", base.aiModel),
                 aiApiKey = s("aiApiKey", base.aiApiKey),
+                aiFallbacks = if (j.has("aiFallbacks")) parseFallbacks(j.optJSONArray("aiFallbacks"), base.aiFallbacks) else base.aiFallbacks,
                 aiPrompt = s("aiPrompt", base.aiPrompt).ifBlank { DEFAULT_AI_PROMPT },
                 aiTemperature = if (j.has("aiTemperature")) (if (j.isNull("aiTemperature")) null else j.optDouble("aiTemperature")) else base.aiTemperature,
                 aiJsonMode = b("aiJsonMode", base.aiJsonMode),
@@ -184,3 +223,17 @@ data class Settings(
         }
     }
 }
+
+// ---- AI provider chain (primary first, then fallbacks) ----
+fun Settings.aiHasCredentials(): Boolean =
+    aiApiKey.isNotBlank() || (aiProvider == AiProvider.OPENAI && !effectiveBase.contains("api.openai.com"))
+
+fun Settings.aiLabel(): String = aiProvider.label + " · " + effectiveModel
+
+/** One Settings copy per endpoint, so every request builder works unchanged. */
+fun Settings.aiChain(): List<Settings> =
+    listOf(copy(aiFallbacks = emptyList())) + aiFallbacks.map {
+        copy(aiProvider = it.provider, aiBaseUrl = it.baseUrl, aiModel = it.model, aiApiKey = it.apiKey, aiFallbacks = emptyList())
+    }
+
+fun Settings.aiUsable(): Boolean = aiChain().any { it.aiHasCredentials() }
