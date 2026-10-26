@@ -74,12 +74,15 @@ object HealthSync {
                 estimateBurn(5.0, s.weightKg, minutes)
             )
             val name = sess.title?.takeIf { it.isNotBlank() } ?: typeName(sess.exerciseType)
-            dao.insertExercise(
-                ExerciseRow(
-                    ts = sess.startTime.toEpochMilli(), name = name, minutes = minutes, kcal = pick.kcal,
-                    source = "HEALTH_CONNECT", externalId = "hc:" + sess.metadata.id
-                )
+            val ext = "hc:" + sess.metadata.id
+            val old = dao.exerciseByExternalId(ext)
+            val row = ExerciseRow(
+                id = old?.id ?: 0, ts = sess.startTime.toEpochMilli(), name = name, minutes = minutes, kcal = pick.kcal,
+                source = "HEALTH_CONNECT", externalId = ext
             )
+            // Writing identical rows still invalidates every query on the table, so only write real changes.
+            val same = old != null && old.ts == row.ts && old.name == row.name && old.minutes == row.minutes && kotlin.math.abs(old.kcal - row.kcal) < 0.01
+            if (!same) dao.insertExercise(row)
             lines += "$name, $minutes min: ${pick.kcal.roundToInt()} kcal (${pick.source})"
         }
         return SyncReport(sessions.size, lines)

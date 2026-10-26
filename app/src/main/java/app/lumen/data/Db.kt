@@ -85,6 +85,8 @@ interface LumenDao {
     @Query("SELECT * FROM exercises WHERE ts >= :from AND ts < :to ORDER BY ts DESC")
     fun exercises(from: Long, to: Long): Flow<List<ExerciseRow>>
 
+    @Query("SELECT * FROM exercises WHERE externalId = :ext LIMIT 1") suspend fun exerciseByExternalId(ext: String): ExerciseRow?
+
     @Insert(onConflict = OnConflictStrategy.REPLACE) suspend fun insertExercise(e: ExerciseRow): Long
     @Query("DELETE FROM exercises WHERE id = :id") suspend fun deleteExercise(id: Long)
 }

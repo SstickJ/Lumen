@@ -15,7 +15,7 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.draw.drawBehind
+import androidx.compose.ui.draw.drawWithCache
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
@@ -70,7 +70,8 @@ fun lumenColors(s: Settings, systemDark: Boolean): LumenColors {
 
 @Composable
 fun LumenTheme(s: Settings, content: @Composable () -> Unit) {
-    val c = lumenColors(s, isSystemInDarkTheme())
+    val sysDark = isSystemInDarkTheme()
+    val c = remember(s, sysDark) { lumenColors(s, sysDark) }
     val scheme = if (c.dark)
         darkColorScheme(primary = c.accent, onPrimary = Color.Black, background = c.bgTop, surface = c.bgBottom,
             onSurface = c.text, onBackground = c.text, surfaceVariant = c.bgBottom, onSurfaceVariant = c.dim)
@@ -93,28 +94,36 @@ fun LumenTheme(s: Settings, content: @Composable () -> Unit) {
 fun LumenBackground(content: @Composable BoxScope.() -> Unit) {
     val c = LocalLumen.current
     Box(
-        Modifier.fillMaxSize()
-            .background(Brush.verticalGradient(listOf(c.bgTop, c.bgBottom)))
-            .drawBehind {
-                val c1 = Offset(size.width * 0.12f, size.height * 0.06f)
-                val r1 = size.width * 0.95f
-                drawCircle(Brush.radialGradient(listOf(c.accent.copy(alpha = if (c.dark) 0.34f else 0.30f), Color.Transparent), center = c1, radius = r1), radius = r1, center = c1)
-                val c2 = Offset(size.width * 0.98f, size.height * 0.60f)
-                val r2 = size.width * 0.8f
-                drawCircle(Brush.radialGradient(listOf(c.accent.copy(alpha = 0.16f), Color.Transparent), center = c2, radius = r2), radius = r2, center = c2)
-            },
+        Modifier.fillMaxSize().drawWithCache {
+            val sky = Brush.verticalGradient(listOf(c.bgTop, c.bgBottom))
+            val c1 = Offset(size.width * 0.12f, size.height * 0.06f)
+            val r1 = size.width * 0.95f
+            val g1 = Brush.radialGradient(listOf(c.accent.copy(alpha = if (c.dark) 0.34f else 0.30f), Color.Transparent), center = c1, radius = r1)
+            val c2 = Offset(size.width * 0.98f, size.height * 0.60f)
+            val r2 = size.width * 0.8f
+            val g2 = Brush.radialGradient(listOf(c.accent.copy(alpha = 0.16f), Color.Transparent), center = c2, radius = r2)
+            onDrawBehind {
+                drawRect(sky)
+                drawCircle(g1, radius = r1, center = c1)
+                drawCircle(g2, radius = r2, center = c2)
+            }
+        },
         content = content
     )
 }
 
-/** Frosted-glass surface: translucent gradient fill plus a light-catching edge. */
+/** Frosted-glass surface. Brushes are cached and there is no clip, so it stays cheap even in lists and during transitions. */
 @Composable
 fun Modifier.glass(shape: Shape = RoundedCornerShape(26.dp), tint: Color? = null): Modifier {
     val c = LocalLumen.current
-    val fill = if (tint != null) Brush.verticalGradient(listOf(tint.copy(alpha = 0.30f), tint.copy(alpha = 0.10f)))
-    else Brush.verticalGradient(listOf(c.glassTop, c.glassBottom))
-    val edge = Brush.linearGradient(listOf(c.edgeHi, c.edgeLo, c.edgeHi.copy(alpha = c.edgeHi.alpha * 0.5f)))
-    return this.clip(shape).background(fill).border(BorderStroke(1.dp, edge), shape)
+    val fill = remember(c.glassTop, c.glassBottom, tint) {
+        if (tint != null) Brush.verticalGradient(listOf(tint.copy(alpha = 0.30f), tint.copy(alpha = 0.10f)))
+        else Brush.verticalGradient(listOf(c.glassTop, c.glassBottom))
+    }
+    val edge = remember(c.edgeHi, c.edgeLo) {
+        Brush.linearGradient(listOf(c.edgeHi, c.edgeLo, c.edgeHi.copy(alpha = c.edgeHi.alpha * 0.5f)))
+    }
+    return this.background(fill, shape).border(BorderStroke(1.dp, edge), shape)
 }
 
 @Composable
@@ -128,7 +137,7 @@ fun GlassCard(
     modifier: Modifier = Modifier, padding: Dp = 16.dp, tint: Color? = null,
     onClick: (() -> Unit)? = null, content: @Composable ColumnScope.() -> Unit
 ) {
-    val m = modifier.glass(tint = tint).let { if (onClick != null) it.clickable(onClick = onClick) else it }
+    val m = modifier.glass(tint = tint).let { if (onClick != null) it.clip(RoundedCornerShape(26.dp)).clickable(onClick = onClick) else it }
     Column(m.padding(padding), content = content)
 }
 
@@ -143,7 +152,7 @@ fun GlassButton(
     val base = if (primary) modifier.clip(shape).background(Brush.verticalGradient(listOf(c.accent, c.accent.copy(alpha = 0.78f))))
     else modifier.glass(shape)
     Row(
-        base.clickable(enabled = enabled) {
+        base.clip(shape).clickable(enabled = enabled) {
             if (c.haptics) haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
             onClick()
         }.padding(horizontal = 20.dp, vertical = 13.dp),
@@ -161,7 +170,7 @@ fun Chip(text: String, selected: Boolean, onClick: () -> Unit, modifier: Modifie
     val shape = RoundedCornerShape(50)
     val m = if (selected) modifier.clip(shape).background(c.accent.copy(alpha = 0.28f)).border(1.dp, c.accent.copy(alpha = 0.8f), shape)
     else modifier.glass(shape)
-    Box(m.clickable(onClick = onClick).padding(horizontal = 14.dp, vertical = 8.dp), contentAlignment = Alignment.Center) {
+    Box(m.clip(shape).clickable(onClick = onClick).padding(horizontal = 14.dp, vertical = 8.dp), contentAlignment = Alignment.Center) {
         T(text, 13.sp, if (selected) FontWeight.SemiBold else FontWeight.Normal, if (selected) c.text else c.dim)
     }
 }
@@ -178,7 +187,7 @@ fun Dot(color: Color, size: Dp = 10.dp) = Box(Modifier.size(size).clip(CircleSha
 
 @Composable
 fun IconCircle(icon: ImageVector, onClick: () -> Unit, size: Dp = 44.dp, tint: Color = LocalLumen.current.text, desc: String? = null) {
-    Box(Modifier.size(size).glass(CircleShape).clickable(onClick = onClick), contentAlignment = Alignment.Center) {
+    Box(Modifier.size(size).glass(CircleShape).clip(CircleShape).clickable(onClick = onClick), contentAlignment = Alignment.Center) {
         Icon(icon, desc, tint = tint, modifier = Modifier.size(size * 0.46f))
     }
 }

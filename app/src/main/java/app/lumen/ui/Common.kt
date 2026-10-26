@@ -42,7 +42,7 @@ fun DateNav(date: LocalDate, isToday: Boolean, prev: () -> Unit, next: () -> Uni
 fun StepsStrip(steps: Long, goal: Int, onClick: () -> Unit) {
     val c = LocalLumen.current
     val frac = (steps.toFloat() / goal).coerceIn(0f, 1f)
-    GlassCard(padding = 14.dp, onClick = onClick) {
+    Column(Modifier.clip(RoundedCornerShape(12.dp)).clickable(onClick = onClick).padding(vertical = 6.dp)) {
         Row(verticalAlignment = Alignment.CenterVertically) {
             Icon(Icons.Rounded.DirectionsWalk, null, tint = c.accent, modifier = Modifier.size(22.dp))
             Spacer(Modifier.width(10.dp))
@@ -56,4 +56,9 @@ fun StepsStrip(steps: Long, goal: Int, onClick: () -> Unit) {
             Box(Modifier.fillMaxWidth(frac).fillMaxHeight().clip(RoundedCornerShape(50)).background(c.accent))
         }
     }
+}
+
+@Composable
+fun HairDivider() {
+    Box(Modifier.fillMaxWidth().height(1.dp).background(LocalLumen.current.dim.copy(alpha = 0.14f)))
 }

@@ -67,7 +67,7 @@ fun ActivityScreen(vm: AppViewModel) {
 
             StepsCard(date, steps, s)
 
-            GlassCard {
+            Column {
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Dot(if (hc == HcState.READY) c.accent else c.warn, 10.dp)
                     Spacer(Modifier.width(10.dp))
@@ -92,10 +92,11 @@ fun ActivityScreen(vm: AppViewModel) {
                 T("Workouts", 13.sp, FontWeight.SemiBold, c.dim, Modifier.weight(1f).padding(start = 4.dp))
                 GlassButton("Add workout", { showAdd = true }, icon = Icons.Rounded.Add)
             }
-            if (list.isEmpty()) GlassCard { T("No workouts on this day.", 14.sp, color = c.dim) }
-            list.forEach { x ->
-                GlassCard(padding = 12.dp) {
-                    Row(verticalAlignment = Alignment.CenterVertically) {
+            if (list.isEmpty()) T("No workouts on this day.", 14.sp, color = c.dim, modifier = Modifier.padding(start = 4.dp))
+            else GlassCard(padding = 4.dp) {
+                list.forEachIndexed { i, x ->
+                    if (i > 0) HairDivider()
+                    Row(Modifier.padding(12.dp), verticalAlignment = Alignment.CenterVertically) {
                         Column(Modifier.weight(1f)) {
                             T(x.name, 15.sp, FontWeight.Medium)
                             T("${x.minutes} min" + if (x.source == "HEALTH_CONNECT") " · Health Connect" else "", 12.sp, color = c.dim)
@@ -121,12 +122,12 @@ fun ActivityScreen(vm: AppViewModel) {
 private fun StepsCard(date: LocalDate, steps: Map<LocalDate, Long>, s: Settings) {
     val c = LocalLumen.current
     val today = steps[date]
-    GlassCard {
+    Column {
         T("Steps", 14.sp, FontWeight.SemiBold)
         Spacer(Modifier.height(8.dp))
         if (today == null) {
             T("No step data yet. Connect Health Connect below to see your Mi Fitness steps.", 13.sp, color = c.dim)
-            return@GlassCard
+            return@Column
         }
         val frac = (today.toFloat() / s.stepGoal).coerceIn(0f, 1f)
         Row(verticalAlignment = Alignment.CenterVertically) {

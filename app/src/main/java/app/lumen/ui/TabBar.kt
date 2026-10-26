@@ -1,5 +1,7 @@
 package app.lumen.ui
 
+import androidx.compose.animation.animateColorAsState
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
@@ -12,6 +14,7 @@ import androidx.compose.material.icons.rounded.Home
 import androidx.compose.material.icons.rounded.Settings
 import androidx.compose.material3.Icon
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -43,9 +46,10 @@ fun TabBar(route: String?, onTab: (String) -> Unit, onScan: () -> Unit, modifier
         Row(Modifier.weight(1f).glass(RoundedCornerShape(50)).padding(6.dp), horizontalArrangement = Arrangement.spacedBy(4.dp)) {
             tabs.forEach { t ->
                 val sel = route == t.route
+                val bg by animateColorAsState(if (sel) c.accent.copy(alpha = 0.22f) else Color.Transparent, tween(220), label = "tab")
                 Column(
                     Modifier.weight(1f).clip(RoundedCornerShape(50))
-                        .background(if (sel) c.accent.copy(alpha = 0.22f) else Color.Transparent)
+                        .background(bg)
                         .clickable { if (!sel) onTab(t.route) }.padding(vertical = 8.dp),
                     horizontalAlignment = Alignment.CenterHorizontally
                 ) {

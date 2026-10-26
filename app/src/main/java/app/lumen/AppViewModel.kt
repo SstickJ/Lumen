@@ -116,12 +116,13 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
     private fun msg(t: String) { _events.trySend(UiEvent.Message(t)) }
     private suspend fun <T> io(block: () -> T): T = withContext(Dispatchers.IO) { block() }
 
-    private fun launchSafe(block: suspend () -> Unit) {
+    /** [quiet] jobs (background refreshes) never touch the busy overlay and swallow errors. */
+    private fun launchSafe(quiet: Boolean = false, block: suspend () -> Unit) {
         viewModelScope.launch {
             try { block() }
             catch (e: CancellationException) { throw e }
-            catch (e: Exception) { msg(e.message ?: e.javaClass.simpleName) }
-            finally { _busy.value = null }
+            catch (e: Exception) { if (!quiet) msg(e.message ?: e.javaClass.simpleName) }
+            finally { if (!quiet) _busy.value = null }
         }
     }
 
@@ -297,28 +298,46 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
 
     fun deleteExercise(id: Long) = launchSafe { dao.deleteExercise(id) }
 
-    fun refreshHc() = launchSafe { _hc.value = HealthSync.state(ctx) }
+    fun refreshHc() = launchSafe(quiet = true) { _hc.value = HealthSync.state(ctx) }
 
-    /** Reload steps for the graph range ending on the selected day. Silent: steps are optional. */
-    fun refreshSteps() {
+    private var stepsLoadedAt = 0L
+    private var stepsFrom: LocalDate? = null
+    private var stepsTo: LocalDate? = null
+    private var lastAutoSync = 0L
+
+    /** Reload steps for the graph range ending on the selected day. Cheap to call: skips if data is fresh and covers the day. */
+    fun refreshSteps(force: Boolean = false) {
+        val day = _date.value
+        val f = stepsFrom
+        val t = stepsTo
+        val fresh = f != null && t != null && day >= f && day <= t && System.currentTimeMillis() - stepsLoadedAt < 60_000
+        if (!force && fresh) return
         viewModelScope.launch {
             runCatching {
                 val state = HealthSync.state(ctx)
                 _hc.value = state
                 if (state != HcState.READY) { _steps.value = emptyMap(); return@runCatching }
                 val s = settings.value
-                val last = _date.value
-                val first = last.minusDays((maxOf(s.graphDays, 7) - 1).toLong())
-                _steps.value = HealthSync.stepsByDay(ctx, first, last, s.dayStartHour)
+                val first = day.minusDays((maxOf(s.graphDays, 7) - 1).toLong())
+                _steps.value = HealthSync.stepsByDay(ctx, first, day, s.dayStartHour)
+                stepsFrom = first; stepsTo = day; stepsLoadedAt = System.currentTimeMillis()
             }
         }
     }
 
-    fun syncHealth(silent: Boolean = false) = launchSafe {
+    /** Background workout import, at most every 5 minutes no matter how often Home appears. */
+    fun autoSync() {
+        val now = System.currentTimeMillis()
+        if (!settings.value.hcEnabled || now - lastAutoSync < 5 * 60_000) return
+        lastAutoSync = now
+        syncHealth(silent = true)
+    }
+
+    fun syncHealth(silent: Boolean = false) = launchSafe(quiet = silent) {
         _hc.value = HealthSync.state(ctx)
         if (_hc.value != HcState.READY) { if (!silent) msg("Health Connect isn't ready. Grant access first."); return@launchSafe }
         val r = HealthSync.sync(ctx, settings.value, dao)
-        refreshSteps()
+        refreshSteps(force = true)
         if (!silent) msg(
             if (r.sessions == 0) "No workouts found in the last ${settings.value.hcLookbackDays} days"
             else "Synced ${r.sessions} workout(s)\n" + r.lines.take(4).joinToString("\n")

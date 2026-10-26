@@ -19,7 +19,10 @@ android {
 
     buildTypes {
         release {
-            isMinifyEnabled = false
+            // R8 + Compose baseline profiles make a huge difference to smoothness. Debug builds are much slower.
+            isMinifyEnabled = true
+            isShrinkResources = true
+            proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro")
             // Signed with the debug key so the release APK installs directly. Use your own keystore to publish.
             signingConfig = signingConfigs.getByName("debug")
         }
@@ -44,6 +47,7 @@ dependencies {
     implementation("androidx.lifecycle:lifecycle-runtime-compose:2.8.7")
     implementation("androidx.navigation:navigation-compose:2.8.4")
     implementation("androidx.exifinterface:exifinterface:1.3.7")
+    implementation("androidx.profileinstaller:profileinstaller:1.3.1")
 
     implementation("androidx.room:room-runtime:2.6.1")
     implementation("androidx.room:room-ktx:2.6.1")

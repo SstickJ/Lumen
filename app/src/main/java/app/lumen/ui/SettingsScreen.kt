@@ -9,7 +9,11 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.rounded.ChevronLeft
+import androidx.compose.animation.animateContentSize
+import androidx.compose.material.icons.rounded.ExpandLess
+import androidx.compose.material.icons.rounded.ExpandMore
+import androidx.compose.material3.Icon
+import androidx.compose.runtime.snapshots.SnapshotStateMap
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Slider
 import androidx.compose.material3.Text
@@ -31,11 +35,18 @@ import app.lumen.core.*
 import kotlin.math.abs
 import kotlin.math.roundToInt
 
+/** Collapsed by default: closed sections are not composed at all, which keeps this tab fast. */
 @Composable
-private fun Section(title: String, content: @Composable ColumnScope.() -> Unit) {
+private fun Section(title: String, openMap: SnapshotStateMap<String, Boolean>, content: @Composable ColumnScope.() -> Unit) {
     val c = LocalLumen.current
-    T(title, 13.sp, FontWeight.SemiBold, c.dim, Modifier.padding(start = 4.dp, top = 8.dp))
-    GlassCard { Column(verticalArrangement = Arrangement.spacedBy(10.dp), content = content) }
+    val open = openMap[title] == true
+    GlassCard(Modifier.animateContentSize(), padding = 0.dp) {
+        Row(Modifier.fillMaxWidth().clickable { openMap[title] = !open }.padding(16.dp), verticalAlignment = Alignment.CenterVertically) {
+            T(title, 13.sp, FontWeight.SemiBold, c.dim, Modifier.weight(1f))
+            Icon(if (open) Icons.Rounded.ExpandLess else Icons.Rounded.ExpandMore, null, tint = c.dim)
+        }
+        if (open) Column(Modifier.padding(start = 16.dp, end = 16.dp, bottom = 16.dp), verticalArrangement = Arrangement.spacedBy(10.dp), content = content)
+    }
 }
 
 @Composable
@@ -50,13 +61,14 @@ fun SettingsScreen(vm: AppViewModel) {
     var showImport by remember { mutableStateOf(false) }
     var importText by remember { mutableStateOf("") }
     var refresh by remember { mutableStateOf(0) }
+    val openMap = remember { mutableStateMapOf<String, Boolean>() }
     var temp by remember { mutableStateOf(s.aiTemperature?.let { fmtNum(it) } ?: "") }
 
     Column(Modifier.fillMaxSize().statusBarsPadding().imePadding()) {
         T("Settings", 26.sp, FontWeight.SemiBold, modifier = Modifier.padding(start = 18.dp, top = 12.dp, bottom = 8.dp))
         Column(Modifier.weight(1f).verticalScroll(rememberScrollState()).padding(horizontal = 18.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
           key(refresh) {
-            Section("AI MEAL RECOGNITION") {
+            Section("AI MEAL RECOGNITION", openMap) {
                 val providers = AiProvider.values().toList()
                 ChipRow(providers.map { when (it) { AiProvider.GEMINI -> "Gemini"; AiProvider.OPENAI -> "OpenAI-compat"; AiProvider.ANTHROPIC -> "Anthropic" } },
                     providers.indexOf(s.aiProvider)) { i -> vm.update { it.copy(aiProvider = providers[i]) } }
@@ -80,7 +92,7 @@ fun SettingsScreen(vm: AppViewModel) {
                 }
             }
 
-            Section("FOOD DATABASE") {
+            Section("FOOD DATABASE", openMap) {
                 val fp = FoodProvider.values().toList()
                 ChipRow(fp.map { if (it == FoodProvider.USDA) "USDA" else "Open Food Facts" }, fp.indexOf(s.foodProvider)) { i -> vm.update { it.copy(foodProvider = fp[i]) } }
                 GlassField(s.offBaseUrl, { v -> vm.update { it.copy(offBaseUrl = v) } }, "Open Food Facts URL")
@@ -89,7 +101,7 @@ fun SettingsScreen(vm: AppViewModel) {
                 Hint("Barcodes always use Open Food Facts, with USDA branded foods as fallback. The provider above is used when searching ingredients. Try pt.openfoodfacts.org for Portuguese products.")
             }
 
-            Section("GOAL & ENERGY") {
+            Section("GOAL & ENERGY", openMap) {
                 SwitchRow("Calculate my target automatically", s.autoGoal, { v -> vm.update { it.copy(autoGoal = v) } }, "Mifflin-St Jeor formula")
                 if (s.autoGoal) {
                     ChipRow(listOf("Male", "Female"), s.sex.ordinal) { i -> vm.update { it.copy(sex = Sex.values()[i]) } }
@@ -118,7 +130,7 @@ fun SettingsScreen(vm: AppViewModel) {
                 Hint("Set to 4 to count late-night snacks toward the previous day.")
             }
 
-            Section("LOGGING") {
+            Section("LOGGING", openMap) {
                 SwitchRow("Review before saving", s.confirmBeforeSaving, { v -> vm.update { it.copy(confirmBeforeSaving = v) } }, "Off = AI results are logged immediately.")
                 SwitchRow("Auto-log scanned barcodes", s.barcodeAutoLog, { v -> vm.update { it.copy(barcodeAutoLog = v) } }, "Logs one serving without asking.")
                 NumField("Default serving (g)", s.defaultServingGrams.toDouble(), integer = true) { v -> vm.update { it.copy(defaultServingGrams = v.toInt()) } }
@@ -126,7 +138,7 @@ fun SettingsScreen(vm: AppViewModel) {
                 SwitchRow("Haptic feedback", s.haptics, { v -> vm.update { it.copy(haptics = v) } })
             }
 
-            Section("HEALTH CONNECT (MI FITNESS)") {
+            Section("HEALTH CONNECT (MI FITNESS)", openMap) {
                 SwitchRow("Auto-import workouts", s.hcEnabled, { v -> vm.update { it.copy(hcEnabled = v) }; if (v) vm.syncHealth() }, "Grant access from the Exercise screen first.")
                 NumField("Look back (days)", s.hcLookbackDays.toDouble(), integer = true) { v -> vm.update { it.copy(hcLookbackDays = v.toInt()) } }
                 NumField("Daily step goal", s.stepGoal.toDouble(), integer = true) { v -> vm.update { it.copy(stepGoal = v.toInt()) } }
@@ -134,7 +146,7 @@ fun SettingsScreen(vm: AppViewModel) {
                     "Off by default: your activity level and logged workouts already cover most walking, so this can double count.")
             }
 
-            Section("APPEARANCE") {
+            Section("APPEARANCE", openMap) {
                 ChipRow(listOf("System", "Light", "Dark"), s.themeMode.ordinal) { i -> vm.update { it.copy(themeMode = ThemeMode.values()[i]) } }
                 val swatches = listOf("#5B9BFF", "#35D0BA", "#A78BFA", "#FF8FA3", "#7BD88F")
                 Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
@@ -150,7 +162,7 @@ fun SettingsScreen(vm: AppViewModel) {
                 Slider(s.glassStrength, { v -> vm.update { it.copy(glassStrength = v) } })
             }
 
-            Section("CONFIG IMPORT / EXPORT") {
+            Section("CONFIG IMPORT / EXPORT", openMap) {
                 Hint("Export copies every setting except API keys. Import merges JSON over your current settings, so partial files work.")
                 Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                     GlassButton("Copy settings", { clipboard.setText(AnnotatedString(vm.exportJson())) }, Modifier.weight(1f))

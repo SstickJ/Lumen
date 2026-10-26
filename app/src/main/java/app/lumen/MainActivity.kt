@@ -6,6 +6,13 @@ import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.activity.viewModels
+import androidx.compose.animation.core.tween
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.scaleIn
+import androidx.compose.animation.scaleOut
+import androidx.compose.animation.slideInHorizontally
+import androidx.compose.animation.slideOutHorizontally
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Box
@@ -16,6 +23,7 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
@@ -39,7 +47,6 @@ class MainActivity : ComponentActivity() {
         enableEdgeToEdge()
         setContent {
             val settings by vm.settings.collectAsStateWithLifecycle()
-            val busy by vm.busy.collectAsStateWithLifecycle()
             val ctx = LocalContext.current
             LumenTheme(settings) {
                 val nav = rememberNavController()
@@ -66,7 +73,34 @@ class MainActivity : ComponentActivity() {
                 }
 
                 LumenBackground {
-                    NavHost(nav, startDestination = "home") {
+                    // Tabs slide a little in the direction of travel and cross-fade; full-screen pages scale in.
+                    fun tabDir(from: String?, to: String?): Int {
+                        val a = tabRoutes.indexOf(from); val b = tabRoutes.indexOf(to)
+                        return if (a < 0 || b < 0) 0 else if (b > a) 1 else -1
+                    }
+                    NavHost(
+                        nav, startDestination = "home",
+                        enterTransition = {
+                            val d = tabDir(initialState.destination.route, targetState.destination.route)
+                            if (d != 0) fadeIn(tween(240, delayMillis = 60)) + slideInHorizontally(tween(280)) { d * it / 10 }
+                            else fadeIn(tween(220)) + scaleIn(tween(260), initialScale = 0.96f)
+                        },
+                        exitTransition = {
+                            val d = tabDir(initialState.destination.route, targetState.destination.route)
+                            if (d != 0) fadeOut(tween(120)) + slideOutHorizontally(tween(280)) { -d * it / 10 }
+                            else fadeOut(tween(160))
+                        },
+                        popEnterTransition = {
+                            val d = tabDir(initialState.destination.route, targetState.destination.route)
+                            if (d != 0) fadeIn(tween(240, delayMillis = 60)) + slideInHorizontally(tween(280)) { d * it / 10 }
+                            else fadeIn(tween(200))
+                        },
+                        popExitTransition = {
+                            val d = tabDir(initialState.destination.route, targetState.destination.route)
+                            if (d != 0) fadeOut(tween(120)) + slideOutHorizontally(tween(280)) { -d * it / 10 }
+                            else fadeOut(tween(160)) + scaleOut(tween(220), targetScale = 0.96f)
+                        }
+                    ) {
                         composable("home") {
                             HomeScreen(vm, onActivity = { goTab("activity") }, onManual = { vm.startManual() }, onEntry = { vm.openEntry(it) })
                         }
@@ -79,19 +113,24 @@ class MainActivity : ComponentActivity() {
                     if (route in tabRoutes) {
                         TabBar(route, onTab = goTab, onScan = { nav.navigate("scan") }, modifier = Modifier.align(Alignment.BottomCenter))
                     }
-
-                    busy?.let { text ->
-                        Box(Modifier.fillMaxSize().background(Color.Black.copy(alpha = 0.45f)).clickable(enabled = true) {}, contentAlignment = Alignment.Center) {
-                            val c = LocalLumen.current
-                            Column(Modifier.glass(RoundedCornerShape(28.dp)).padding(28.dp), horizontalAlignment = Alignment.CenterHorizontally) {
-                                CircularProgressIndicator(color = c.accent)
-                                Spacer(Modifier.height(16.dp))
-                                T(text, 15.sp)
-                            }
-                        }
-                    }
+                    BusyOverlay(vm)
                 }
             }
+        }
+    }
+}
+
+/** Own composable so progress changes never recompose the rest of the app. */
+@Composable
+private fun BusyOverlay(vm: AppViewModel) {
+    val busy by vm.busy.collectAsStateWithLifecycle()
+    val text = busy ?: return
+    val c = LocalLumen.current
+    Box(Modifier.fillMaxSize().background(Color.Black.copy(alpha = 0.45f)).clickable(enabled = true) {}, contentAlignment = Alignment.Center) {
+        Column(Modifier.glass(RoundedCornerShape(28.dp)).padding(28.dp), horizontalAlignment = Alignment.CenterHorizontally) {
+            CircularProgressIndicator(color = c.accent)
+            Spacer(Modifier.height(16.dp))
+            T(text, 15.sp)
         }
     }
 }
