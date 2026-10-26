@@ -52,6 +52,8 @@ data class Settings(
     // Health Connect (Mi Fitness)
     val hcEnabled: Boolean = false,
     val hcLookbackDays: Int = 7,
+    val stepGoal: Int = 8000,
+    val stepsCredit: Boolean = false,   // add step calories to "burned" (can overlap with workouts)
     // Look
     val themeMode: ThemeMode = ThemeMode.SYSTEM,
     val accentHex: String = "#5B9BFF",
@@ -78,6 +80,7 @@ data class Settings(
         graphDays = if (graphDays in listOf(7, 14, 30)) graphDays else 7,
         defaultServingGrams = defaultServingGrams.coerceIn(1, 2000),
         hcLookbackDays = hcLookbackDays.coerceIn(1, 60),
+        stepGoal = stepGoal.coerceIn(1000, 50000),
         glassStrength = glassStrength.coerceIn(0f, 1f),
         accentHex = if (parseHexColor(accentHex) != null) accentHex else "#5B9BFF",
         foodLanguage = foodLanguage.filter { it.isLetter() }.take(5).lowercase()
@@ -118,6 +121,8 @@ data class Settings(
         put("haptics", haptics)
         put("hcEnabled", hcEnabled)
         put("hcLookbackDays", hcLookbackDays)
+        put("stepGoal", stepGoal)
+        put("stepsCredit", stepsCredit)
         put("themeMode", themeMode.name)
         put("accentHex", accentHex)
         put("glassStrength", glassStrength.toDouble())
@@ -169,6 +174,8 @@ data class Settings(
                 haptics = b("haptics", base.haptics),
                 hcEnabled = b("hcEnabled", base.hcEnabled),
                 hcLookbackDays = i("hcLookbackDays", base.hcLookbackDays),
+                stepGoal = i("stepGoal", base.stepGoal),
+                stepsCredit = b("stepsCredit", base.stepsCredit),
                 themeMode = e("themeMode", base.themeMode, ThemeMode.values()),
                 accentHex = s("accentHex", base.accentHex),
                 glassStrength = dbl("glassStrength", base.glassStrength.toDouble()).toFloat(),

@@ -64,6 +64,10 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
 
     private val startHour = settings.map { it.dayStartHour }.distinctUntilChanged()
 
+    /** Steps per day from Health Connect (empty until connected). */
+    private val _steps = MutableStateFlow<Map<LocalDate, Long>>(emptyMap())
+    val steps: StateFlow<Map<LocalDate, Long>> = _steps
+
     @OptIn(ExperimentalCoroutinesApi::class)
     val entries: StateFlow<List<EntryWithIngredients>> =
         combine(_date, startHour) { d, h -> dayRangeMs(d, zone, h) }
@@ -84,12 +88,16 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
                 val first = d.minusDays((n - 1).toLong())
                 val from = dayRangeMs(first, zone, h).first
                 val to = dayRangeMs(d, zone, h).second
-                combine(dao.entries(from, to), dao.exercises(from, to)) { es, xs ->
+                combine(
+                    dao.entries(from, to), dao.exercises(from, to), _steps,
+                    settings.map { it.stepsCredit to it.weightKg }.distinctUntilChanged()
+                ) { es, xs, st, credit ->
                     val eaten = es.groupBy { dayOf(it.entry.ts, zone, h) }.mapValues { (_, l) -> l.sumOf { e -> e.sum().kcal } }
                     val burned = xs.groupBy { dayOf(it.ts, zone, h) }.mapValues { (_, l) -> l.sumOf { x -> x.kcal } }
                     (0 until n).map { i ->
                         val day = first.plusDays(i.toLong())
-                        DayTotals(day, eaten[day] ?: 0.0, burned[day] ?: 0.0)
+                        val stepBurn = if (credit.first) stepsKcal(st[day] ?: 0L, credit.second) else 0.0
+                        DayTotals(day, eaten[day] ?: 0.0, (burned[day] ?: 0.0) + stepBurn)
                     }
                 }
             }
@@ -123,6 +131,7 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
                 _hc.value = HealthSync.state(ctx)
                 if (settings.value.hcEnabled && _hc.value == HcState.READY) HealthSync.sync(ctx, settings.value, dao)
             }
+            refreshSteps()
         }
     }
 
@@ -290,10 +299,26 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
 
     fun refreshHc() = launchSafe { _hc.value = HealthSync.state(ctx) }
 
+    /** Reload steps for the graph range ending on the selected day. Silent: steps are optional. */
+    fun refreshSteps() {
+        viewModelScope.launch {
+            runCatching {
+                val state = HealthSync.state(ctx)
+                _hc.value = state
+                if (state != HcState.READY) { _steps.value = emptyMap(); return@runCatching }
+                val s = settings.value
+                val last = _date.value
+                val first = last.minusDays((maxOf(s.graphDays, 7) - 1).toLong())
+                _steps.value = HealthSync.stepsByDay(ctx, first, last, s.dayStartHour)
+            }
+        }
+    }
+
     fun syncHealth(silent: Boolean = false) = launchSafe {
         _hc.value = HealthSync.state(ctx)
         if (_hc.value != HcState.READY) { if (!silent) msg("Health Connect isn't ready. Grant access first."); return@launchSafe }
         val r = HealthSync.sync(ctx, settings.value, dao)
+        refreshSteps()
         if (!silent) msg(
             if (r.sessions == 0) "No workouts found in the last ${settings.value.hcLookbackDays} days"
             else "Synced ${r.sessions} workout(s)\n" + r.lines.take(4).joinToString("\n")

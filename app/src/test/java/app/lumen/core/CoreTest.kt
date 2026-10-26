@@ -304,4 +304,15 @@ class CoreTest {
         assertEquals("pt", Settings.fromJson(JSONObject("""{"foodLanguage":" PT-pt! "}""")).foodLanguage.take(2))
         assertEquals("", Settings().foodLanguage)
     }
+
+    @Test fun stepsAndGoalSettings() {
+        assertEquals(40.0, stepsKcal(1000, 70.0), 0.001)
+        assertEquals(80.0, stepsKcal(1000, 140.0), 0.001)
+        assertEquals(0.0, stepsKcal(0, 70.0), 0.0)
+        val d = Settings()
+        assertEquals(8000, d.stepGoal); assertFalse(d.stepsCredit)
+        val back = Settings.fromJson(JSONObject(Settings(stepGoal = 12000, stepsCredit = true).toJson().toString()))
+        assertEquals(12000, back.stepGoal); assertTrue(back.stepsCredit)
+        assertEquals(50000, Settings.fromJson(JSONObject("""{"stepGoal":999999}""")).stepGoal)
+    }
 }

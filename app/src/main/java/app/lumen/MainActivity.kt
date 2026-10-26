@@ -6,6 +6,8 @@ import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.activity.viewModels
+import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Spacer
@@ -19,15 +21,13 @@ import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.Color.Companion.Black
-import androidx.compose.foundation.background
-import androidx.compose.foundation.clickable
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import androidx.compose.ui.platform.LocalContext
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
+import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.compose.rememberNavController
 import app.lumen.ui.*
 
@@ -43,6 +43,18 @@ class MainActivity : ComponentActivity() {
             val ctx = LocalContext.current
             LumenTheme(settings) {
                 val nav = rememberNavController()
+                val backEntry by nav.currentBackStackEntryAsState()
+                val route = backEntry?.destination?.route
+
+                val goTab: (String) -> Unit = { r ->
+                    if (r == "home") nav.popBackStack("home", false)
+                    else nav.navigate(r) {
+                        popUpTo("home") { saveState = true }
+                        launchSingleTop = true
+                        restoreState = true
+                    }
+                }
+
                 LaunchedEffect(Unit) {
                     vm.events.collect { e ->
                         when (e) {
@@ -52,27 +64,26 @@ class MainActivity : ComponentActivity() {
                         }
                     }
                 }
+
                 LumenBackground {
                     NavHost(nav, startDestination = "home") {
                         composable("home") {
-                            HomeScreen(
-                                vm, onScan = { nav.navigate("scan") }, onExercise = { nav.navigate("exercise") },
-                                onManual = { vm.startManual() }, onSettings = { nav.navigate("settings") },
-                                onEntry = { vm.openEntry(it) }
-                            )
+                            HomeScreen(vm, onActivity = { goTab("activity") }, onManual = { vm.startManual() }, onEntry = { vm.openEntry(it) })
                         }
+                        composable("activity") { ActivityScreen(vm) }
+                        composable("settings") { SettingsScreen(vm) }
                         composable("scan") { ScanScreen(vm) { nav.popBackStack() } }
                         composable("review") { ReviewScreen(vm) { nav.popBackStack() } }
-                        composable("exercise") { ExerciseScreen(vm) { nav.popBackStack() } }
-                        composable("settings") { SettingsScreen(vm) { nav.popBackStack() } }
                     }
+
+                    if (route in tabRoutes) {
+                        TabBar(route, onTab = goTab, onScan = { nav.navigate("scan") }, modifier = Modifier.align(Alignment.BottomCenter))
+                    }
+
                     busy?.let { text ->
-                        Box(Modifier.fillMaxSize().background(Black.copy(alpha = 0.45f)).clickable(enabled = true) {}, contentAlignment = Alignment.Center) {
+                        Box(Modifier.fillMaxSize().background(Color.Black.copy(alpha = 0.45f)).clickable(enabled = true) {}, contentAlignment = Alignment.Center) {
                             val c = LocalLumen.current
-                            Column(
-                                Modifier.glass(RoundedCornerShape(28.dp)).padding(28.dp),
-                                horizontalAlignment = Alignment.CenterHorizontally
-                            ) {
+                            Column(Modifier.glass(RoundedCornerShape(28.dp)).padding(28.dp), horizontalAlignment = Alignment.CenterHorizontally) {
                                 CircularProgressIndicator(color = c.accent)
                                 Spacer(Modifier.height(16.dp))
                                 T(text, 15.sp)

@@ -42,11 +42,10 @@ private fun Section(title: String, content: @Composable ColumnScope.() -> Unit) 
 private fun Hint(text: String) = T(text, 12.sp, color = LocalLumen.current.dim)
 
 @Composable
-fun SettingsScreen(vm: AppViewModel, onBack: () -> Unit) {
+fun SettingsScreen(vm: AppViewModel) {
     val c = LocalLumen.current
     val s by vm.settings.collectAsStateWithLifecycle()
     val clipboard = LocalClipboardManager.current
-    BackHandler(onBack = onBack)
     var showKey by remember { mutableStateOf(false) }
     var showImport by remember { mutableStateOf(false) }
     var importText by remember { mutableStateOf("") }
@@ -54,11 +53,7 @@ fun SettingsScreen(vm: AppViewModel, onBack: () -> Unit) {
     var temp by remember { mutableStateOf(s.aiTemperature?.let { fmtNum(it) } ?: "") }
 
     Column(Modifier.fillMaxSize().statusBarsPadding().imePadding()) {
-        Row(Modifier.fillMaxWidth().padding(16.dp), verticalAlignment = Alignment.CenterVertically) {
-            IconCircle(Icons.Rounded.ChevronLeft, onBack, 42.dp, desc = "Back")
-            Spacer(Modifier.width(12.dp))
-            T("Settings", 20.sp, FontWeight.SemiBold)
-        }
+        T("Settings", 26.sp, FontWeight.SemiBold, modifier = Modifier.padding(start = 18.dp, top = 12.dp, bottom = 8.dp))
         Column(Modifier.weight(1f).verticalScroll(rememberScrollState()).padding(horizontal = 18.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
           key(refresh) {
             Section("AI MEAL RECOGNITION") {
@@ -134,6 +129,9 @@ fun SettingsScreen(vm: AppViewModel, onBack: () -> Unit) {
             Section("HEALTH CONNECT (MI FITNESS)") {
                 SwitchRow("Auto-import workouts", s.hcEnabled, { v -> vm.update { it.copy(hcEnabled = v) }; if (v) vm.syncHealth() }, "Grant access from the Exercise screen first.")
                 NumField("Look back (days)", s.hcLookbackDays.toDouble(), integer = true) { v -> vm.update { it.copy(hcLookbackDays = v.toInt()) } }
+                NumField("Daily step goal", s.stepGoal.toDouble(), integer = true) { v -> vm.update { it.copy(stepGoal = v.toInt()) } }
+                SwitchRow("Add step calories to burned", s.stepsCredit, { v -> vm.update { it.copy(stepsCredit = v) } },
+                    "Off by default: your activity level and logged workouts already cover most walking, so this can double count.")
             }
 
             Section("APPEARANCE") {
@@ -164,7 +162,7 @@ fun SettingsScreen(vm: AppViewModel, onBack: () -> Unit) {
                 GlassButton("Reset all settings", { vm.resetSettings(); temp = ""; refresh++ }, Modifier.fillMaxWidth())
             }
           }
-            Spacer(Modifier.height(32.dp))
+            Spacer(Modifier.height(130.dp))
         }
     }
 

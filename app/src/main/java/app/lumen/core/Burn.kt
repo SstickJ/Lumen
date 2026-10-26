@@ -41,3 +41,6 @@ fun pickBurn(
         else -> BurnPick(estimate, "estimate")
     }
 }
+
+/** ~0.04 kcal per step at 70 kg, scaled by body weight. */
+fun stepsKcal(steps: Long, weightKg: Double): Double = steps * 0.04 * weightKg / 70.0

@@ -46,21 +46,22 @@ import kotlin.math.max
 import kotlin.math.roundToInt
 
 @Composable
-fun HomeScreen(
-    vm: AppViewModel, onScan: () -> Unit, onExercise: () -> Unit, onManual: () -> Unit,
-    onSettings: () -> Unit, onEntry: (Long) -> Unit
-) {
+fun HomeScreen(vm: AppViewModel, onActivity: () -> Unit, onManual: () -> Unit, onEntry: (Long) -> Unit) {
     val c = LocalLumen.current
     val s by vm.settings.collectAsStateWithLifecycle()
     val date by vm.date.collectAsStateWithLifecycle()
     val entries by vm.entries.collectAsStateWithLifecycle()
     val exercises by vm.exercises.collectAsStateWithLifecycle()
     val series by vm.series.collectAsStateWithLifecycle()
+    val steps by vm.steps.collectAsStateWithLifecycle()
     LaunchedEffect(Unit) { if (s.hcEnabled) vm.syncHealth(silent = true) }
+    LaunchedEffect(date, s.graphDays) { vm.refreshSteps() }
 
     val isToday = date == vm.todayLogical()
     val eaten = entries.sumOf { it.sum().kcal }
-    val burned = exercises.sumOf { it.kcal }
+    val stepsToday = steps[date]
+    val stepKcal = if (s.stepsCredit && stepsToday != null) stepsKcal(stepsToday, s.weightKg) else 0.0
+    val burned = exercises.sumOf { it.kcal } + stepKcal
     val status = dayStatus(eaten, burned, s.targetKcal(), s.exerciseCreditPct, s.tolerancePct, LocalTime.now().hour, isToday)
     val statusColor = when (status.kind) {
         StatusKind.OVER -> c.over
@@ -71,79 +72,66 @@ fun HomeScreen(
     val carbs = entries.sumOf { it.sum().carbs }
     val fat = entries.sumOf { it.sum().fat }
 
-    Box(Modifier.fillMaxSize()) {
-        LazyColumn(
-            Modifier.fillMaxSize().statusBarsPadding(),
-            contentPadding = PaddingValues(start = 18.dp, end = 18.dp, top = 8.dp, bottom = 140.dp),
-            verticalArrangement = Arrangement.spacedBy(14.dp)
-        ) {
-            item { DateBar(date, isToday, { vm.shiftDay(-1) }, { vm.shiftDay(1) }, { vm.goToday() }, onSettings) }
+    LazyColumn(
+        Modifier.fillMaxSize().statusBarsPadding(),
+        contentPadding = PaddingValues(start = 18.dp, end = 18.dp, top = 8.dp, bottom = 130.dp),
+        verticalArrangement = Arrangement.spacedBy(14.dp)
+    ) {
+        item { DateNav(date, isToday, { vm.shiftDay(-1) }, { vm.shiftDay(1) }, { vm.goToday() }) }
 
-            item {
-                GlassCard(tint = statusColor, padding = 14.dp) {
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        Dot(statusColor, 12.dp)
-                        Spacer(Modifier.width(12.dp))
-                        Column {
-                            T(status.title, 16.sp, FontWeight.SemiBold)
-                            T(status.detail, 13.sp, color = c.dim)
-                        }
+        item {
+            GlassCard(tint = statusColor, padding = 14.dp) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Dot(statusColor, 12.dp)
+                    Spacer(Modifier.width(12.dp))
+                    Column {
+                        T(status.title, 16.sp, FontWeight.SemiBold)
+                        T(status.detail, 13.sp, color = c.dim)
                     }
                 }
-            }
-
-            item { ChartCard(series, s, onRange = { d -> vm.update { it.copy(graphDays = d) } }) }
-
-            item {
-                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                    Stat("Eaten", eaten.roundToInt().toString(), "kcal", Modifier.weight(1f))
-                    Stat("Burned", burned.roundToInt().toString(), "kcal", Modifier.weight(1f))
-                    val left = status.remaining
-                    Stat(if (left >= 0) "Left" else "Over", abs(left).roundToInt().toString(), "kcal", Modifier.weight(1f),
-                        if (left < 0) c.over else null)
-                }
-            }
-
-            if (s.showMacros && eaten > 0) item {
-                GlassCard(padding = 12.dp) {
-                    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceEvenly) {
-                        Macro("Protein", protein); Macro("Carbs", carbs); Macro("Fat", fat)
-                    }
-                }
-            }
-
-            item { T("Meals", 13.sp, FontWeight.SemiBold, c.dim, Modifier.padding(start = 4.dp, top = 6.dp)) }
-            if (entries.isEmpty()) item {
-                GlassCard { T("Nothing logged. Tap the camera to scan a meal or barcode.", 14.sp, color = c.dim) }
-            }
-            items(entries, key = { it.entry.id }) { e -> EntryRow(e) { onEntry(e.entry.id) } }
-
-            if (exercises.isNotEmpty()) {
-                item { T("Exercise", 13.sp, FontWeight.SemiBold, c.dim, Modifier.padding(start = 4.dp, top = 6.dp)) }
-                items(exercises, key = { "x" + it.id }) { x -> ExerciseLine(x, onExercise) }
             }
         }
 
-        BottomBar(Modifier.align(Alignment.BottomCenter), onExercise, onScan, onManual)
-    }
-}
+        item { ChartCard(series, s, onRange = { d -> vm.update { it.copy(graphDays = d) } }) }
 
-@Composable
-private fun DateBar(date: LocalDate, isToday: Boolean, prev: () -> Unit, next: () -> Unit, today: () -> Unit, settings: () -> Unit) {
-    val c = LocalLumen.current
-    val label = when (date) {
-        LocalDate.now() -> "Today"
-        LocalDate.now().minusDays(1) -> "Yesterday"
-        else -> date.format(DateTimeFormatter.ofPattern("EEE, d MMM"))
-    }
-    Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-        IconCircle(Icons.Rounded.ChevronLeft, prev, 38.dp, desc = "Previous day")
-        Spacer(Modifier.width(10.dp))
-        Box(Modifier.clickable(onClick = today)) { T(if (isToday) "Today" else label, 20.sp, FontWeight.SemiBold) }
-        Spacer(Modifier.width(10.dp))
-        IconCircle(Icons.Rounded.ChevronRight, next, 38.dp, desc = "Next day")
-        Spacer(Modifier.weight(1f))
-        IconCircle(Icons.Rounded.Settings, settings, 40.dp, desc = "Settings")
+        item {
+            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                Stat("Eaten", eaten.roundToInt().toString(), "kcal", Modifier.weight(1f))
+                Stat("Burned", burned.roundToInt().toString(), "kcal", Modifier.weight(1f))
+                val left = status.remaining
+                Stat(if (left >= 0) "Left" else "Over", abs(left).roundToInt().toString(), "kcal", Modifier.weight(1f),
+                    if (left < 0) c.over else null)
+            }
+        }
+
+        if (stepsToday != null) item { StepsStrip(stepsToday, s.stepGoal, onActivity) }
+
+        if (s.showMacros && eaten > 0) item {
+            GlassCard(padding = 12.dp) {
+                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceEvenly) {
+                    Macro("Protein", protein); Macro("Carbs", carbs); Macro("Fat", fat)
+                }
+            }
+        }
+
+        item {
+            Row(Modifier.fillMaxWidth().padding(top = 6.dp), verticalAlignment = Alignment.CenterVertically) {
+                T("Meals", 13.sp, FontWeight.SemiBold, c.dim, Modifier.weight(1f).padding(start = 4.dp))
+                Row(Modifier.clip(RoundedCornerShape(50)).clickable(onClick = onManual).padding(horizontal = 10.dp, vertical = 4.dp), verticalAlignment = Alignment.CenterVertically) {
+                    Icon(Icons.Rounded.Add, null, tint = c.accent, modifier = Modifier.size(16.dp))
+                    T(" Add manually", 12.sp, FontWeight.SemiBold, c.accent)
+                }
+            }
+        }
+        if (entries.isEmpty()) item {
+            GlassCard { T("Nothing logged. Tap the camera to scan a meal or barcode.", 14.sp, color = c.dim) }
+        }
+        items(entries, key = { it.entry.id }) { e -> EntryRow(e) { onEntry(e.entry.id) } }
+
+        if (exercises.isNotEmpty()) {
+            item { T("Exercise", 13.sp, FontWeight.SemiBold, c.dim, Modifier.padding(start = 4.dp, top = 6.dp)) }
+            items(exercises, key = { "x" + it.id }) { x -> ExerciseLine(x, onActivity) }
+        }
     }
 }
 
@@ -206,25 +194,6 @@ private fun ExerciseLine(x: ExerciseRow, onClick: () -> Unit) {
             T("−${x.kcal.roundToInt()}", 18.sp, FontWeight.SemiBold)
             T(" kcal", 11.sp, color = c.dim)
         }
-    }
-}
-
-@Composable
-private fun BottomBar(modifier: Modifier, onExercise: () -> Unit, onScan: () -> Unit, onManual: () -> Unit) {
-    val c = LocalLumen.current
-    Row(
-        modifier.navigationBarsPadding().padding(bottom = 16.dp)
-            .glass(RoundedCornerShape(50)).padding(horizontal = 14.dp, vertical = 10.dp),
-        verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(18.dp)
-    ) {
-        IconCircle(Icons.Rounded.FitnessCenter, onExercise, 46.dp, desc = "Add exercise")
-        Box(
-            Modifier.size(66.dp).clip(CircleShape)
-                .background(Brush.verticalGradient(listOf(c.accent, c.accent.copy(alpha = 0.75f))))
-                .clickable(onClick = onScan),
-            contentAlignment = Alignment.Center
-        ) { Icon(Icons.Rounded.CameraAlt, "Scan", tint = if (c.dark) Color.Black else Color.White, modifier = Modifier.size(30.dp)) }
-        IconCircle(Icons.Rounded.Edit, onManual, 46.dp, desc = "Add manually")
     }
 }
 
