@@ -79,3 +79,39 @@ fun parseHexColor(hex: String): Long? {
         }
     } catch (e: NumberFormatException) { null }
 }
+
+// ---- colour helpers (kept here so they can be unit tested) ----
+fun relativeLuminance(argb: Long): Double {
+    fun ch(shift: Int): Double {
+        val v = ((argb shr shift) and 0xFF).toInt() / 255.0
+        return if (v <= 0.03928) v / 12.92 else Math.pow((v + 0.055) / 1.055, 2.4)
+    }
+    return 0.2126 * ch(16) + 0.7152 * ch(8) + 0.0722 * ch(0)
+}
+
+fun mixArgb(a: Long, b: Long, t: Double): Long {
+    fun ch(shift: Int): Long {
+        val x = (a shr shift) and 0xFF
+        val y = (b shr shift) and 0xFF
+        return Math.round(x + (y - x) * t).coerceIn(0L, 255L)
+    }
+    return 0xFF000000L or (ch(16) shl 16) or (ch(8) shl 8) or ch(0)
+}
+
+/** An accent that is invisible on the chosen theme (white on light, near-black on dark) is nudged so it stays readable. */
+fun readableAccent(argb: Long, dark: Boolean): Long {
+    val l = relativeLuminance(argb)
+    return when {
+        dark && l < 0.06 -> mixArgb(argb, 0xFFFFFFFFL, 0.65)
+        !dark && l > 0.80 -> 0xFF3A4254L
+        else -> argb
+    }
+}
+
+/** Text and icons drawn ON the accent colour: dark for light accents (white!), white for dark ones. */
+fun accentNeedsDarkText(argb: Long): Boolean = relativeLuminance(argb) > 0.179
+
+fun isNeutralColor(argb: Long): Boolean {
+    val r = ((argb shr 16) and 0xFF).toInt(); val g = ((argb shr 8) and 0xFF).toInt(); val b = (argb and 0xFF).toInt()
+    return maxOf(r, g, b) - minOf(r, g, b) < 24
+}

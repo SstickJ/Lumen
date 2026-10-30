@@ -60,6 +60,6 @@ fun TabBar(route: String?, onTab: (String) -> Unit, onScan: () -> Unit, modifier
             Modifier.size(62.dp).bounceClick(scale = 0.9f, onClick = onScan)
                 .clip(CircleShape).background(Brush.verticalGradient(listOf(c.accent, c.accent.copy(alpha = 0.75f)))),
             contentAlignment = Alignment.Center
-        ) { Icon(Icons.Rounded.CameraAlt, "Scan", tint = if (c.dark) Color.Black else Color.White, modifier = Modifier.size(28.dp)) }
+        ) { Icon(Icons.Rounded.CameraAlt, "Scan", tint = c.onAccent, modifier = Modifier.size(28.dp)) }
     }
 }

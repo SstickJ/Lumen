@@ -267,7 +267,7 @@ fun SettingsScreen(vm: AppViewModel) {
         onDismissRequest = { showImport = false }, containerColor = c.bgBottom,
         title = { T("Import settings", 18.sp, FontWeight.SemiBold) },
         text = { GlassField(importText, { importText = it }, "Settings JSON", singleLine = false, minLines = 6) },
-        confirmButton = { TextButton({ if (vm.importJson(importText)) { showImport = false; importText = ""; refresh++ } }) { Text("Import") } },
-        dismissButton = { TextButton({ showImport = false }) { Text("Cancel") } }
+        confirmButton = { DialogButton("Import", { if (vm.importJson(importText)) { showImport = false; importText = ""; refresh++ } }) },
+        dismissButton = { DialogButton("Cancel", { showImport = false }, color = c.dim) }
     )
 }

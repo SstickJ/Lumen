@@ -194,8 +194,8 @@ fun ScanScreen(vm: AppViewModel, onBack: () -> Unit) {
         onDismissRequest = { showTyped = false }, containerColor = c.bgBottom,
         title = { T("Type the barcode", 18.sp, FontWeight.SemiBold) },
         text = { GlassField(typed, { typed = it }, "Digits under the barcode", keyboardType = KeyboardType.Number) },
-        confirmButton = { TextButton({ showTyped = false; vm.lookupBarcode(typed, force = true); typed = "" }) { Text("Look up") } },
-        dismissButton = { TextButton({ showTyped = false }) { Text("Cancel") } }
+        confirmButton = { DialogButton("Look up", { showTyped = false; vm.lookupBarcode(typed, force = true); typed = "" }) },
+        dismissButton = { DialogButton("Cancel", { showTyped = false }, color = c.dim) }
     )
 }
 

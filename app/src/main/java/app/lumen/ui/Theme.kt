@@ -57,7 +57,10 @@ import androidx.compose.ui.unit.sp
 import androidx.core.view.WindowCompat
 import app.lumen.core.Settings
 import app.lumen.core.ThemeMode
+import app.lumen.core.accentNeedsDarkText
+import app.lumen.core.isNeutralColor
 import app.lumen.core.parseHexColor
+import app.lumen.core.readableAccent
 import java.util.Locale
 import kotlin.math.roundToInt
 
@@ -69,7 +72,9 @@ data class LumenColors(
     val accent: Color, val warn: Color, val over: Color,
     val glassTop: Color, val glassBottom: Color,
     val edgeHi: Color, val edgeLo: Color,
-    val haptics: Boolean
+    val haptics: Boolean,
+    val onAccent: Color,   // text / icons drawn on top of the accent colour
+    val glow: Color        // soft background glow (a calm blue-grey when the accent is white or grey)
 )
 
 val LocalLumen = staticCompositionLocalOf<LumenColors> { error("LumenTheme missing") }
@@ -79,18 +84,21 @@ val LocalBackdrop = staticCompositionLocalOf<GraphicsLayer?> { null }
 
 fun lumenColors(s: Settings, systemDark: Boolean): LumenColors {
     val dark = when (s.themeMode) { ThemeMode.SYSTEM -> systemDark; ThemeMode.DARK -> true; ThemeMode.LIGHT -> false }
-    val accent = Color(parseHexColor(s.accentHex) ?: 0xFF5B9BFFL)
+    val argb = readableAccent(parseHexColor(s.accentHex) ?: 0xFFFFFFFFL, dark)
+    val accent = Color(argb)
+    val onAccent = if (accentNeedsDarkText(argb)) Color(0xFF0B0F19) else Color.White
+    val glow = if (isNeutralColor(argb)) Color(0xFF7C93C9) else accent
     val k = s.glassStrength
     return if (dark) LumenColors(
         true, Color(0xFF0A111F), Color(0xFF111C33), Color(0xFFF2F5FA), Color(0xFF9AA6BA),
         accent, Color(0xFFFFC266), Color(0xFFFF6B6B),
         Color.White.copy(alpha = 0.07f + 0.13f * k), Color.White.copy(alpha = 0.03f + 0.07f * k),
-        Color.White.copy(alpha = 0.32f), Color.White.copy(alpha = 0.04f), s.haptics
+        Color.White.copy(alpha = 0.32f), Color.White.copy(alpha = 0.04f), s.haptics, onAccent, glow
     ) else LumenColors(
         false, Color(0xFFE4ECF9), Color(0xFFF6F8FC), Color(0xFF0F1626), Color(0xFF5C687D),
         accent, Color(0xFFD98A12), Color(0xFFE5484D),
         Color.White.copy(alpha = 0.50f + 0.30f * k), Color.White.copy(alpha = 0.28f + 0.22f * k),
-        Color.White.copy(alpha = 0.95f), Color.Black.copy(alpha = 0.05f), s.haptics
+        Color.White.copy(alpha = 0.95f), Color.Black.copy(alpha = 0.05f), s.haptics, onAccent, glow
     )
 }
 
@@ -99,10 +107,10 @@ fun LumenTheme(s: Settings, content: @Composable () -> Unit) {
     val sysDark = isSystemInDarkTheme()
     val c = remember(s, sysDark) { lumenColors(s, sysDark) }
     val scheme = if (c.dark)
-        darkColorScheme(primary = c.accent, onPrimary = Color.Black, background = c.bgTop, surface = c.bgBottom,
+        darkColorScheme(primary = c.accent, onPrimary = c.onAccent, background = c.bgTop, surface = c.bgBottom,
             onSurface = c.text, onBackground = c.text, surfaceVariant = c.bgBottom, onSurfaceVariant = c.dim)
     else
-        lightColorScheme(primary = c.accent, onPrimary = Color.White, background = c.bgTop, surface = c.bgBottom,
+        lightColorScheme(primary = c.accent, onPrimary = c.onAccent, background = c.bgTop, surface = c.bgBottom,
             onSurface = c.text, onBackground = c.text, surfaceVariant = c.bgBottom, onSurfaceVariant = c.dim)
     val view = LocalView.current
     SideEffect {
@@ -124,10 +132,10 @@ fun LumenBackground(content: @Composable BoxScope.() -> Unit) {
             val sky = Brush.verticalGradient(listOf(c.bgTop, c.bgBottom))
             val c1 = Offset(size.width * 0.12f, size.height * 0.06f)
             val r1 = size.width * 0.95f
-            val g1 = Brush.radialGradient(listOf(c.accent.copy(alpha = if (c.dark) 0.34f else 0.30f), Color.Transparent), center = c1, radius = r1)
+            val g1 = Brush.radialGradient(listOf(c.glow.copy(alpha = if (c.dark) 0.30f else 0.26f), Color.Transparent), center = c1, radius = r1)
             val c2 = Offset(size.width * 0.98f, size.height * 0.60f)
             val r2 = size.width * 0.8f
-            val g2 = Brush.radialGradient(listOf(c.accent.copy(alpha = 0.16f), Color.Transparent), center = c2, radius = r2)
+            val g2 = Brush.radialGradient(listOf(c.glow.copy(alpha = 0.16f), Color.Transparent), center = c2, radius = r2)
             onDrawBehind {
                 drawRect(sky)
                 drawCircle(g1, radius = r1, center = c1)
@@ -230,7 +238,7 @@ fun GlassButton(
         styled.padding(horizontal = if (compact) 14.dp else 20.dp, vertical = if (compact) 9.dp else 13.dp),
         horizontalArrangement = Arrangement.Center, verticalAlignment = Alignment.CenterVertically
     ) {
-        val fg = if (!enabled) c.dim else if (primary) (if (c.dark) Color.Black else Color.White) else c.text
+        val fg = if (!enabled) c.dim else if (primary) c.onAccent else c.text
         if (icon != null) { Icon(icon, null, tint = fg, modifier = Modifier.size(if (compact) 16.dp else 18.dp)); Spacer(Modifier.width(if (compact) 6.dp else 8.dp)) }
         T(text, if (compact) 13.sp else 15.sp, FontWeight.SemiBold, fg)
     }
@@ -310,11 +318,12 @@ fun GlassSwitch(checked: Boolean, onChange: (Boolean) -> Unit) {
     val c = LocalLumen.current
     val x by animateDpAsState(if (checked) 22.dp else 2.dp, spring(dampingRatio = 0.6f, stiffness = 520f), label = "thumb")
     val track by animateColorAsState(if (checked) c.accent else c.dim.copy(alpha = 0.35f), tween(180), label = "track")
+    val thumb by animateColorAsState(if (checked) c.onAccent else Color.White, tween(180), label = "thumb")
     Box(
         Modifier.size(width = 50.dp, height = 30.dp).bounceClick(scale = 0.94f) { onChange(!checked) }
             .clip(RoundedCornerShape(50)).background(track)
     ) {
-        Box(Modifier.offset(x = x, y = 2.dp).size(26.dp).clip(CircleShape).background(Color.White))
+        Box(Modifier.offset(x = x, y = 2.dp).size(26.dp).clip(CircleShape).background(thumb))
     }
 }
 
@@ -339,4 +348,12 @@ fun LumenSlider(value: Float, onChange: (Float) -> Unit, steps: Int = 0) {
             activeTickColor = Color.Transparent, inactiveTickColor = Color.Transparent
         )
     )
+}
+
+/** Dialog action with the same springy press as every other button (replaces Material's TextButton). */
+@Composable
+fun DialogButton(text: String, onClick: () -> Unit, color: Color = LocalLumen.current.accent, enabled: Boolean = true) {
+    Box(Modifier.bounceClick(enabled = enabled, scale = 0.92f, onClick = onClick).padding(horizontal = 14.dp, vertical = 10.dp)) {
+        T(text, 15.sp, FontWeight.SemiBold, if (enabled) color else LocalLumen.current.dim)
+    }
 }

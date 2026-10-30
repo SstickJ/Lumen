@@ -2,6 +2,7 @@ package app.lumen.ui
 
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.gestures.detectHorizontalDragGestures
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.*
@@ -20,13 +21,14 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import app.lumen.core.accentNeedsDarkText
 import app.lumen.core.parseHexColor
 
 private fun hexOf(h: Float, s: Float, v: Float): String =
     String.format("#%06X", 0xFFFFFF and android.graphics.Color.HSVToColor(floatArrayOf(h, s, v)))
 
 private fun hsvOf(hex: String): FloatArray {
-    val argb = (parseHexColor(hex) ?: 0xFF5B9BFFL).toInt()
+    val argb = (parseHexColor(hex) ?: 0xFFFFFFFFL).toInt()
     return FloatArray(3).also { android.graphics.Color.colorToHSV(argb, it) }
 }
 
@@ -49,7 +51,7 @@ fun AccentPicker(hex: String, onChange: (String) -> Unit) {
         if (parseHexColor(text) != parseHexColor(hex)) text = hex
     }
 
-    val swatches = listOf("#5B9BFF", "#35D0BA", "#A78BFA", "#FF8FA3", "#7BD88F", "#FFB547", "#1F2937")
+    val swatches = listOf("#FFFFFF", "#5B9BFF", "#35D0BA", "#A78BFA", "#FF8FA3", "#7BD88F", "#FFB547")
     Column(verticalArrangement = Arrangement.spacedBy(14.dp)) {
         Row(horizontalArrangement = Arrangement.spacedBy(12.dp), verticalAlignment = Alignment.CenterVertically) {
             swatches.forEach { sw ->
@@ -57,9 +59,10 @@ fun AccentPicker(hex: String, onChange: (String) -> Unit) {
                 val selected = sw.equals(hex, ignoreCase = true)
                 Box(
                     Modifier.size(32.dp).bounceClick(scale = 0.88f) { onChange(sw); text = sw }
-                        .clip(CircleShape).background(col)
+                        .clip(CircleShape).background(col).border(1.dp, c.dim.copy(alpha = 0.4f), CircleShape)
                 ) {
-                    if (selected) Box(Modifier.align(Alignment.Center).size(10.dp).clip(CircleShape).background(Color.White))
+                    val mark = if (accentNeedsDarkText(parseHexColor(sw)!!)) Color.Black else Color.White
+                    if (selected) Box(Modifier.align(Alignment.Center).size(10.dp).clip(CircleShape).background(mark))
                 }
             }
         }
@@ -67,7 +70,7 @@ fun AccentPicker(hex: String, onChange: (String) -> Unit) {
         GradientBar(s, listOf(Color.hsv(h, 0f, v), Color.hsv(h, 1f, v))) { s = it; val x = hexOf(h, s, v); text = x; onChange(x) }
         GradientBar(v, listOf(Color.Black, Color.hsv(h, s, 1f))) { v = it; val x = hexOf(h, s, v); text = x; onChange(x) }
         Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-            Box(Modifier.size(48.dp).clip(CircleShape).background(Color(parseHexColor(current)!!)))
+            Box(Modifier.size(48.dp).clip(CircleShape).background(Color(parseHexColor(current)!!)).border(1.dp, c.dim.copy(alpha = 0.4f), CircleShape))
             GlassField(
                 text, { t ->
                     text = t
@@ -75,7 +78,7 @@ fun AccentPicker(hex: String, onChange: (String) -> Unit) {
                     // Only apply once it is a complete, valid colour; partial typing is left alone.
                     if (norm.length == 7 && parseHexColor(norm) != null) onChange(norm.uppercase())
                 },
-                "Hex color", Modifier.weight(1f), placeholder = "#5B9BFF"
+                "Hex color", Modifier.weight(1f), placeholder = "#FFFFFF"
             )
         }
         T("Drag the bars or type a hex value like 5B9BFF.", 12.sp, FontWeight.Normal, c.dim)

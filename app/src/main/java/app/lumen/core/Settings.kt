@@ -65,8 +65,8 @@ data class Settings(
     val stepGoal: Int = 8000,
     val stepsCredit: Boolean = false,   // add step calories to "burned" (can overlap with workouts)
     // Look
-    val themeMode: ThemeMode = ThemeMode.LIGHT,
-    val accentHex: String = "#5B9BFF",
+    val themeMode: ThemeMode = ThemeMode.DARK,
+    val accentHex: String = "#FFFFFF",
     val glassStrength: Float = 0.5f,
     // Remote config
     val configUrl: String = ""
@@ -93,7 +93,7 @@ data class Settings(
         hcLookbackDays = hcLookbackDays.coerceIn(1, 60),
         stepGoal = stepGoal.coerceIn(1000, 50000),
         glassStrength = glassStrength.coerceIn(0f, 1f),
-        accentHex = if (parseHexColor(accentHex) != null) accentHex else "#5B9BFF",
+        accentHex = if (parseHexColor(accentHex) != null) accentHex else "#FFFFFF",
         foodLanguage = foodLanguage.filter { it.isLetter() }.take(5).lowercase()
     )
 
@@ -162,9 +162,9 @@ data class Settings(
             return out
         }
 
-        /** Settings saved by older versions: the default theme became light, so move old installs over once. */
+        /** Settings saved by very old versions get the current default look (dark) once. Later choices are kept. */
         fun migrate(j: JSONObject): JSONObject {
-            if (j.optInt("v", 1) < 2) { j.put("themeMode", "LIGHT"); j.put("v", 2) }
+            if (j.optInt("v", 1) < 2) { j.put("themeMode", "DARK"); j.put("v", 2) }
             return j
         }
 

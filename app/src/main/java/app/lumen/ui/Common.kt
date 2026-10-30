@@ -72,7 +72,7 @@ private fun CalendarPicker(vm: AppViewModel, selected: LocalDate, today: LocalDa
     val c = LocalLumen.current
     var month by remember { mutableStateOf(YearMonth.from(selected)) }
     val logged by remember(month) { vm.loggedDays(month) }.collectAsStateWithLifecycle(emptySet())
-    val onAccent = if (c.dark) Color.Black else Color.White
+    val onAccent = c.onAccent
     val first = month.atDay(1)
     val lead = first.dayOfWeek.value - 1          // weeks start on Monday
     val cells = lead + month.lengthOfMonth()

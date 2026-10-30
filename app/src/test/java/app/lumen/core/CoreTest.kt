@@ -256,7 +256,7 @@ class CoreTest {
             base.copy(aiTemperature = 0.9))
         assertEquals("gemini-3-flash", m.aiModel); assertEquals("keep", m.aiApiKey)
         assertEquals(120, m.age); assertEquals(7, m.graphDays)
-        assertEquals("#5B9BFF", m.accentHex); assertEquals(AiProvider.GEMINI, m.aiProvider)
+        assertEquals("#FFFFFF", m.accentHex); assertEquals(AiProvider.GEMINI, m.aiProvider)
         assertNull(m.aiTemperature)
         assertEquals(DEFAULT_AI_PROMPT, m.aiPrompt)
         assertEquals("gemini-3-flash", m.effectiveModel); assertEquals("gemini-2.5-flash", Settings().effectiveModel)
@@ -354,14 +354,30 @@ class CoreTest {
         assertEquals(5, Settings.fromJson(many).aiFallbacks.size)
     }
 
-    @Test fun defaultThemeIsLightAndOldSettingsMigrate() {
-        assertEquals(ThemeMode.LIGHT, Settings().themeMode)
+    @Test fun defaultLookIsDarkWithWhiteAccentAndOldSettingsMigrate() {
+        assertEquals(ThemeMode.DARK, Settings().themeMode)
+        assertEquals("#FFFFFF", Settings().accentHex)
         val old = JSONObject("""{"v":1,"themeMode":"SYSTEM","aiModel":"keep-me"}""")
         val migrated = Settings.fromJson(Settings.migrate(old))
-        assertEquals(ThemeMode.LIGHT, migrated.themeMode); assertEquals("keep-me", migrated.aiModel)
+        assertEquals(ThemeMode.DARK, migrated.themeMode); assertEquals("keep-me", migrated.aiModel)
         // already-migrated settings keep the user's choice
-        val cur = JSONObject("""{"v":2,"themeMode":"DARK"}""")
-        assertEquals(ThemeMode.DARK, Settings.fromJson(Settings.migrate(cur)).themeMode)
+        val cur = JSONObject("""{"v":2,"themeMode":"LIGHT"}""")
+        assertEquals(ThemeMode.LIGHT, Settings.fromJson(Settings.migrate(cur)).themeMode)
         assertEquals(2, Settings().toJson().getInt("v"))
+    }
+
+    @Test fun accentContrastHelpers() {
+        assertEquals(1.0, relativeLuminance(0xFFFFFFFFL), 0.001); assertEquals(0.0, relativeLuminance(0xFF000000L), 0.001)
+        // white accent: fine on dark, swapped for a readable grey on light
+        assertEquals(0xFFFFFFFFL, readableAccent(0xFFFFFFFFL, dark = true))
+        assertEquals(0xFF3A4254L, readableAccent(0xFFFFFFFFL, dark = false))
+        // near-black accent on a dark theme is lightened; a normal colour is untouched
+        val lifted = readableAccent(0xFF1F2937L, dark = true)
+        assertTrue(relativeLuminance(lifted) > relativeLuminance(0xFF1F2937L) + 0.1); assertEquals(0xFFL, (lifted shr 24) and 0xFFL)
+        assertEquals(0xFF5B9BFFL, readableAccent(0xFF5B9BFFL, dark = true)); assertEquals(0xFF5B9BFFL, readableAccent(0xFF5B9BFFL, dark = false))
+        // text on the accent: dark on white / light blue, white on dark colours (the white-toggle bug)
+        assertTrue(accentNeedsDarkText(0xFFFFFFFFL)); assertTrue(accentNeedsDarkText(0xFF5B9BFFL)); assertFalse(accentNeedsDarkText(0xFF1F2937L))
+        assertTrue(isNeutralColor(0xFFFFFFFFL)); assertTrue(isNeutralColor(0xFF808080L)); assertFalse(isNeutralColor(0xFF5B9BFFL))
+        assertEquals(0xFF808080L, mixArgb(0xFF000000L, 0xFFFFFFFFL, 0.5))
     }
 }

@@ -127,8 +127,8 @@ fun ReviewScreen(vm: AppViewModel, onBack: () -> Unit) {
         onDismissRequest = { confirmDelete = false }, containerColor = c.bgBottom,
         title = { T("Delete this meal?", 18.sp, FontWeight.SemiBold) },
         text = { T("It will be removed from your log.", 14.sp, color = c.dim) },
-        confirmButton = { TextButton({ confirmDelete = false; vm.deleteDraftEntry() }) { Text("Delete", color = c.over) } },
-        dismissButton = { TextButton({ confirmDelete = false }) { Text("Cancel") } }
+        confirmButton = { DialogButton("Delete", { confirmDelete = false; vm.deleteDraftEntry() }, color = c.over) },
+        dismissButton = { DialogButton("Cancel", { confirmDelete = false }, color = c.dim) }
     )
 }
 
@@ -158,12 +158,12 @@ private fun IngredientDialog(ing: IngredientDraft, onDismiss: () -> Unit, onSave
             }
         },
         confirmButton = {
-            TextButton({
+            DialogButton("Save", {
                 onSave(ing.copy(name = name.ifBlank { ing.name }, grams = grams.coerceAtLeast(1.0), kcalPer100 = kcal.coerceAtLeast(0.0),
                     proteinPer100 = p.coerceAtLeast(0.0), carbsPer100 = cb.coerceAtLeast(0.0), fatPer100 = f.coerceAtLeast(0.0)))
-            }) { Text("Save") }
+            })
         },
-        dismissButton = { TextButton(onDismiss) { Text("Cancel") } }
+        dismissButton = { DialogButton("Cancel", onDismiss, color = c.dim) }
     )
 }
 
